@@ -1,18 +1,26 @@
 /**
  * Module: one-click Simplified Chinese for character First Message
- * Uses SillyTavern's /api/translate/google (same as Chat Translation).
+ * Uses the user's currently connected SillyTavern AI (generateRaw), not Google Translate.
  */
 
 import {
-    getRequestHeaders,
+    generateRaw,
+    online_status,
 } from '../../../../../script.js';
 
 const LOG = '[首条汉化]';
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const BTN_ID = 'st_mk_first_mes_zh';
-const LANG = 'zh-CN';
 
-/** Protect {{macros}} so MT does not mangle them. */
+const SYSTEM_PROMPT = `你是专业翻译。把用户给出的角色卡「第一条消息 / First Message」译成通顺的简体中文。
+
+硬性规则：
+1. 原样保留所有 {{宏}}（如 {{user}}、{{char}}），不要翻译、不要改写、不要加空格破坏。
+2. 保留 markdown / HTML / 引号 / 换行与叙事口吻（角色扮演开场白）。
+3. 只输出译文本身：不要前言、不要「译文：」、不要用代码块包裹。
+4. 专有名词可保留英文或常用译法，以自然可读为准。`;
+
+/** Protect {{macros}} so the model is less likely to alter them. */
 function shieldMacros(text) {
     const macros = [];
     const shielded = String(text).replace(/\{\{[\s\S]*?\}\}/g, (m) => {
@@ -24,41 +32,31 @@ function shieldMacros(text) {
 }
 
 function restoreMacros(text, macros) {
-    return String(text).replace(/⟦§(\d+)§⟧/g, (_, n) => {
+    let out = String(text);
+    out = out.replace(/⟦§(\d+)§⟧/g, (_, n) => {
         const i = Number(n);
         return Number.isFinite(i) && macros[i] !== undefined ? macros[i] : _;
     });
-}
-
-async function translateGoogle(text, lang = LANG) {
-    if (!text) return '';
-    const response = await fetch('/api/translate/google', {
-        method: 'POST',
-        headers: getRequestHeaders(),
-        body: JSON.stringify({ text, lang }),
+    // Fallback if the model rewrote the shield markers oddly but left index
+    out = out.replace(/\[\[§(\d+)§\]\]/g, (_, n) => {
+        const i = Number(n);
+        return Number.isFinite(i) && macros[i] !== undefined ? macros[i] : _;
     });
-    if (!response.ok) {
-        const errText = await response.text().catch(() => response.statusText);
-        throw new Error(errText || response.statusText || `HTTP ${response.status}`);
-    }
-    return await response.text();
+    return out;
 }
 
-async function translatePreservingMacros(text) {
-    const { shielded, macros } = shieldMacros(text);
-    // Chunk large greetings similarly to ST's translate extension
-    const chunkSize = 5000;
-    let translated;
-    if (shielded.length <= chunkSize) {
-        translated = await translateGoogle(shielded);
-    } else {
-        const parts = [];
-        for (let i = 0; i < shielded.length; i += chunkSize) {
-            parts.push(await translateGoogle(shielded.slice(i, i + chunkSize)));
-        }
-        translated = parts.join('');
+function stripModelChrome(text) {
+    let t = String(text ?? '').trim();
+    // common reasoning wrappers
+    t = t.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    t = t.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '').trim();
+    // strip accidental fences
+    if (t.startsWith('```')) {
+        t = t.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
     }
-    return restoreMacros(translated, macros);
+    // strip leading labels
+    t = t.replace(/^(译文|翻译结果|Translation)\s*[:：]\s*/i, '').trim();
+    return t;
 }
 
 function looksMostlyChinese(text) {
@@ -66,6 +64,28 @@ function looksMostlyChinese(text) {
     if (!s) return false;
     const cjk = (s.match(/[\u4e00-\u9fff]/g) || []).length;
     return cjk / s.length >= 0.35;
+}
+
+async function translateWithAi(text) {
+    if (online_status === 'no_connection' || !online_status) {
+        throw new Error('当前未连接 API。请先在插头页连上模型。');
+    }
+
+    const { shielded, macros } = shieldMacros(text);
+    const approxTokens = Math.ceil(shielded.length / 2);
+    const responseLength = Math.min(4000, Math.max(300, approxTokens * 2));
+
+    const raw = await generateRaw({
+        prompt: shielded,
+        systemPrompt: SYSTEM_PROMPT,
+        responseLength,
+    });
+
+    if (raw == null || String(raw).trim() === '') {
+        throw new Error('模型没有返回内容');
+    }
+
+    return restoreMacros(stripModelChrome(raw), macros);
 }
 
 async function onClickTranslate() {
@@ -80,32 +100,32 @@ async function onClickTranslate() {
         return;
     }
     if (looksMostlyChinese(original)) {
-        const ok = confirm('这段看起来已经偏中文了。仍要再翻译一遍吗？');
+        const ok = confirm('这段看起来已经偏中文了。仍要再用 AI 翻译一遍吗？');
         if (!ok) return;
     }
 
     const $btn = $(`#${BTN_ID}`);
     $btn.addClass('st-mk-fmzh-busy').prop('disabled', true);
     const prevTitle = $btn.attr('title');
-    $btn.attr('title', '翻译中…');
+    $btn.attr('title', 'AI 翻译中…');
+    toastr.info('正在用当前 API 汉化第一条消息…', '首条汉化');
 
     try {
-        const out = await translatePreservingMacros(original);
+        const out = await translateWithAi(original);
         if (!out || !String(out).trim()) {
             throw new Error('翻译结果为空');
         }
         $ta.val(out).trigger('input').trigger('change');
-        // Keep create_save / editors in sync if ST listens on those
         try {
             $ta[0].dispatchEvent(new Event('input', { bubbles: true }));
         } catch (_) { /* ignore */ }
-        toastr.success('已汉化第一条消息（请记得保存角色卡）', '首条汉化');
+        toastr.success('已用 AI 汉化（请记得保存角色卡）', '首条汉化');
     } catch (e) {
         console.error(LOG, e);
         toastr.error(String(e?.message || e), '首条汉化失败');
     } finally {
         $btn.removeClass('st-mk-fmzh-busy').prop('disabled', false);
-        $btn.attr('title', prevTitle || '一键汉化第一条消息');
+        $btn.attr('title', prevTitle || '用当前 AI 一键汉化第一条消息');
     }
 }
 
@@ -116,7 +136,7 @@ function injectButton() {
 
     const $btn = $(`
         <div id="${BTN_ID}" class="menu_button menu_button_icon st-mk-fmzh-btn margin0"
-             title="一键汉化第一条消息（保留 {{宏}}）" role="button" tabindex="0">
+             title="用当前 AI 一键汉化第一条消息（保留 {{宏}}）" role="button" tabindex="0">
             <i class="fa-solid fa-language"></i>
             <span>汉化</span>
         </div>
@@ -133,7 +153,6 @@ function injectButton() {
         }
     });
 
-    // Prefer sitting next to「其他开场」
     const $alt = $header.find('.open_alternate_greetings');
     if ($alt.length) $alt.before($btn);
     else $header.append($btn);
@@ -142,17 +161,13 @@ function injectButton() {
 
 function watchForEditor() {
     if (injectButton()) return;
-    // Character editor mounts later / on select
     const root = document.getElementById('rm_ch_create_block')
         || document.getElementById('right-nav-panel')
         || document.body;
     const obs = new MutationObserver(() => {
-        if (injectButton()) {
-            // keep observing lightly in case editor re-renders
-        }
+        injectButton();
     });
     obs.observe(root, { childList: true, subtree: true });
-    // Also periodic fallback for a bit
     let tries = 0;
     const timer = setInterval(() => {
         tries += 1;
@@ -164,7 +179,7 @@ function watchForEditor() {
 export function initFirstMesZh() {
     try {
         watchForEditor();
-        console.log(LOG, `module loaded v${VERSION}`);
+        console.log(LOG, `module loaded v${VERSION} (AI / generateRaw)`);
     } catch (e) {
         console.error(LOG, 'init failed', e);
     }

@@ -6,7 +6,7 @@
 |------|------|
 | API 自动重试 | 对话生成失败时自动重试（原 st-api-auto-retry） |
 | 角色置顶与归档 | 列表置顶 / 归档隐藏（原 st-char-pin-archive） |
-| 第一条消息一键汉化 | 角色卡「第一条消息」旁「汉化」按钮，走酒馆谷歌翻译接口，保留 `{{宏}}` |
+| 第一条消息一键汉化 | 角色卡「第一条消息」旁「汉化」按钮，走**当前连接的 AI**（generateRaw），保留 `{{宏}}` |
 
 **不含** [Megumin Suite 汉化版](https://github.com/molot23/Megumin-Suite-zh)（请继续单独装）。
 
@@ -24,4 +24,4 @@ https://github.com/molot23/st-molot-kit
 
 ## 版本
 
-1.1.0
+1.1.1
