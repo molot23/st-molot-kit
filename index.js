@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 聊天分享 txt
  * Author: molot23
- * Version: 1.2.7
+ * Version: 1.3.0
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.2.7';
+const VERSION = '1.3.0';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -63,7 +63,7 @@ function injectKitPanel() {
                 </div>
                 <div class="inline-drawer-content">
                     <p class="st-mk-note">
-                        合集模块：API 自动重试、角色置顶与归档、开场汉化、聊天分享 txt。下面可分别开关。
+                        合集模块：API 自动重试、角色置顶与归档、开场汉化、复制聊天到剪贴板。下面可分别开关。
                         旧插件的设置会沿用（无需重配）。装好本合集后，请禁用并卸载那两个单独扩展，避免重复加载。
                         Megumin Suite 汉化版请继续单独安装。
                     </p>
@@ -88,7 +88,7 @@ function injectKitPanel() {
                     <div class="st-mk-row">
                         <label class="checkbox_label">
                             <input type="checkbox" id="st_mk_share_chat" ${s.shareChat ? 'checked' : ''}/>
-                            <span>聊天分享 txt（三条杠菜单 + 立即分享）</span>
+                            <span>复制聊天到剪贴板</span>
                         </label>
                     </div>
                     <div class="st-mk-row">
@@ -97,12 +97,11 @@ function injectKitPanel() {
                     </div>
                     <small class="st-mk-note">开关变更后需刷新页面生效。合集 v${VERSION}</small>
                     <div class="st-mk-actions">
-                        <button type="button" id="st_mk_diag_share" class="menu_button st-mk-action-btn">分享诊断（测试系统面板）</button>
-                        <button type="button" id="st_mk_run_share" class="menu_button st-mk-action-btn">立即分享当前聊天</button>
+                        <button type="button" id="st_mk_run_share" class="menu_button st-mk-action-btn">复制当前聊天到剪贴板</button>
                         <button type="button" id="st_mk_run_fmzh" class="menu_button st-mk-action-btn">立即汉化当前角色开场</button>
                         <button type="button" id="st_mk_force_fmzh" class="menu_button st-mk-action-btn">重新注入 / 诊断「汉化开场」</button>
                     </div>
-                    <small class="st-mk-note">聊天分享：安卓暂用安全调用（避免闪退）。若诊断显示 intent-failed，需等 TauriTavern 原生分享 API。开场汉化用「立即汉化」。</small>
+                    <small class="st-mk-note">聊天导出：复制到剪贴板（不下载、不调系统分享）。开场汉化用「立即汉化」。</small>
                 </div>
             </div>
         </div>`;
@@ -174,32 +173,6 @@ function injectKitPanel() {
             toastr.error(String(e && e.message ? e.message : e), '注入失败');
         }
     });
-    $('#st_mk_diag_share').on('click', async function () {
-        try {
-            const m = await import('./modules/share-chat-txt.js');
-            m.initShareChatTxt();
-            const d = await m.diagnoseShare();
-            const summary = [
-                `v${d.moduleVersion}`,
-                `android=${d.android}`,
-                `tauri=${d.tauri}`,
-                `nav.share=${d.hasNavigatorShare}`,
-                `invoke=${d.hasTauriInvoke}`,
-                `result=${d.result}`,
-                d.via ? `via=${d.via}` : '',
-            ].filter(Boolean).join(' · ');
-            const detail = (d.steps || []).slice(-6).join(' | ');
-            console.log(LOG, 'share diagnose', d);
-            if (d.result === 'cancelled-but-sheet-ok' || String(d.result || '').startsWith('shared')) {
-                toastr.success(`${summary}\n${detail}`, '分享诊断', { timeOut: 12000 });
-            } else {
-                toastr.info(`${summary}\n${detail}`, '分享诊断', { timeOut: 12000 });
-            }
-        } catch (e) {
-            console.error(LOG, e);
-            toastr.error(String(e && e.message ? e.message : e), '分享诊断失败');
-        }
-    });
     $('#st_mk_run_share').on('click', async function () {
         try {
             ensureKitSettings().shareChat = true;
@@ -210,7 +183,7 @@ function injectKitPanel() {
             await m.shareCurrentChat();
         } catch (e) {
             console.error(LOG, e);
-            toastr.error(String(e && e.message ? e.message : e), '分享失败');
+            toastr.error(String(e && e.message ? e.message : e), '复制失败');
         }
     });
     return true;
@@ -268,7 +241,7 @@ jQuery(() => {
         if (s.autoRetry) parts.push('自动重试');
         if (s.pinArchive) parts.push('置顶归档');
         if (s.firstMesZh) parts.push('首条汉化');
-        if (s.shareChat) parts.push('聊天分享');
+        if (s.shareChat) parts.push('聊天复制');
         toastr.info(
             parts.length ? `已加载：${parts.join(' + ')}（v${VERSION}）` : `合集已加载，但模块均已关闭（v${VERSION}）`,
             '酒馆小工具',
