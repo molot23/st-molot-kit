@@ -4,7 +4,7 @@
  */
 
 const LOG = '[开场导入导出]';
-const VERSION = '1.4.2';
+const VERSION = '1.4.3';
 const STYLE_ID = 'st_mk_gio_style';
 
 const FIRST_EXPORT_ID = 'st_mk_gio_first_export';
@@ -223,53 +223,78 @@ async function readClipboard() {
 }
 
 function packFirst(text) {
-    return `${FIRST_MARK_START}\n${String(text ?? '')}\n${FIRST_MARK_END}\n`;
+    // Plain text only — markers confuse external 汉化 (Grok etc.)
+    return String(text ?? '');
 }
 
 function unpackFirst(raw) {
-    const s = String(raw ?? '');
+    let s = String(raw ?? '');
+    // Drop accidental UI / old marker chrome
+    s = s.replace(/^translate-to-chinese skill\s*/i, '').trim();
     const m = s.match(new RegExp(`${FIRST_MARK_START}\\r?\\n([\\s\\S]*?)\\r?\\n${FIRST_MARK_END}`));
     if (m) return m[1];
-    if (s.includes(ALT_MARK_START)) {
+    s = s.replace(new RegExp(`^\\s*${FIRST_MARK_START}\\s*`, 'm'), '');
+    s = s.replace(new RegExp(`\\s*${FIRST_MARK_END}\\s*$`, 'm'), '');
+    if (s.includes(ALT_MARK_START) || /【候选\s*\d+】/.test(s)) {
         throw new Error('剪贴板像是「候选开场」导出，请用候选区的导入按钮');
     }
-    return s;
+    return s.trim();
 }
 
 function packAlts(alts) {
-    const lines = [ALT_MARK_START];
-    (alts || []).forEach((text, i) => {
-        lines.push(ALT_SEP(i + 1));
-        lines.push(String(text ?? ''));
-    });
-    lines.push(ALT_MARK_END);
-    lines.push('');
-    return lines.join('\n');
+    // Human-readable separators for multi-alt; single alt = plain body only
+    const list = (alts || []).map((x) => String(x ?? ''));
+    if (list.length <= 1) return list[0] || '';
+    return list.map((text, i) => `【候选${i + 1}】\n${text}`).join('\n\n');
 }
 
 function unpackAlts(raw) {
-    const s = String(raw ?? '');
-    if (!s.includes(ALT_MARK_START)) {
-        if (s.includes(FIRST_MARK_START)) {
-            throw new Error('剪贴板像是「主开场」导出，请用主开场的导入按钮');
+    let s = String(raw ?? '').trim();
+    if (!s) throw new Error('剪贴板为空');
+    // strip accidental chrome
+    s = s.replace(/^translate-to-chinese skill\s*/i, '').trim();
+    s = s.replace(new RegExp(`^${FIRST_MARK_START}\\s*`, 'm'), '').replace(new RegExp(`${FIRST_MARK_END}\\s*$`, 'm'), '').trim();
+
+    if (s.includes(FIRST_MARK_START) && !s.includes(ALT_MARK_START) && !/【候选\s*\d+】/.test(s)) {
+        throw new Error('剪贴板像是「主开场」导出，请用主开场的导入按钮');
+    }
+
+    // New: 【候选N】
+    if (/【候选\s*\d+】/.test(s)) {
+        const parts = s.split(/【候选\s*(\d+)】/);
+        const map = new Map();
+        for (let i = 1; i + 1 < parts.length; i += 2) {
+            const idx = Number(parts[i]) - 1;
+            const text = String(parts[i + 1] ?? '').replace(/^\n+/, '').replace(/\n+$/, '');
+            if (Number.isFinite(idx) && idx >= 0) map.set(idx, text);
         }
-        const t = s.trim();
-        if (!t) throw new Error('剪贴板为空');
-        return [t];
+        if (map.size) {
+            const max = Math.max(...map.keys());
+            const arr = [];
+            for (let i = 0; i <= max; i++) arr.push(map.has(i) ? map.get(i) : '');
+            return arr;
+        }
     }
-    const body = s.split(ALT_MARK_START)[1]?.split(ALT_MARK_END)[0] ?? '';
-    const parts = body.split(/---ALT\s+(\d+)---/);
-    const map = new Map();
-    for (let i = 1; i + 1 < parts.length; i += 2) {
-        const idx = Number(parts[i]) - 1;
-        const text = String(parts[i + 1] ?? '').replace(/^\n/, '').replace(/\n$/, '');
-        if (Number.isFinite(idx) && idx >= 0) map.set(idx, text);
+
+    // Legacy marked format
+    if (s.includes(ALT_MARK_START)) {
+        const body = s.split(ALT_MARK_START)[1]?.split(ALT_MARK_END)[0] ?? '';
+        const parts = body.split(/---ALT\s+(\d+)---/);
+        const map = new Map();
+        for (let i = 1; i + 1 < parts.length; i += 2) {
+            const idx = Number(parts[i]) - 1;
+            const text = String(parts[i + 1] ?? '').replace(/^\n/, '').replace(/\n$/, '');
+            if (Number.isFinite(idx) && idx >= 0) map.set(idx, text);
+        }
+        if (!map.size) throw new Error('未能解析候选开场导出格式');
+        const max = Math.max(...map.keys());
+        const arr = [];
+        for (let i = 0; i <= max; i++) arr.push(map.has(i) ? map.get(i) : '');
+        return arr;
     }
-    if (!map.size) throw new Error('未能解析候选开场导出格式');
-    const max = Math.max(...map.keys());
-    const arr = [];
-    for (let i = 0; i <= max; i++) arr.push(map.has(i) ? map.get(i) : '');
-    return arr;
+
+    // Plain single block
+    return [s];
 }
 
 export async function exportFirstMes() {
@@ -279,7 +304,7 @@ export async function exportFirstMes() {
         return { ok: false };
     }
     await copyText(packFirst(b.first));
-    toastr?.success?.('主开场已复制到剪贴板（可拿去外面汉化）', '开场导入导出');
+    toastr?.success?.('主开场已复制（纯文本，无标记）', '开场导入导出');
     return { ok: true };
 }
 
