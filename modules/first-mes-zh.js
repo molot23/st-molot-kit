@@ -1,13 +1,14 @@
 /**
  * Module: First Message + Alternate Greetings → Simplified Chinese via user's AI.
- * Zero static imports from ST core (avoids path/export breakage on TauriTavern forks).
- * Uses SillyTavern.getContext() at runtime.
+ * Zero static imports from ST core. Uses SillyTavern.getContext() at runtime.
+ * v1.4.0 — visible-DOM aware inject, floating FAB, character-data translate path.
  */
 
 const LOG = '[首条汉化]';
-const VERSION = '1.3.0';
+const VERSION = '1.4.0';
 const BTN_ID = 'st_mk_first_mes_zh';
 const ALT_BTN_ID = 'st_mk_alt_greetings_zh';
+const FAB_ID = 'st_mk_fmzh_fab';
 const STYLE_ID = 'st_mk_fmzh_style';
 
 const SYSTEM_PROMPT = `你是专业翻译。把用户给出的角色卡开场白（First Message / Alternate Greeting）译成通顺的简体中文。
@@ -50,7 +51,7 @@ function ensureCss() {
         font-weight: 600 !important;
         white-space: nowrap !important;
       }
-      #${BTN_ID}.st-mk-fmzh-busy, #${ALT_BTN_ID}.st-mk-fmzh-busy {
+      #${BTN_ID}.st-mk-fmzh-busy, #${ALT_BTN_ID}.st-mk-fmzh-busy, #${FAB_ID}.st-mk-fmzh-busy {
         opacity: .5 !important;
         pointer-events: none !important;
       }
@@ -62,8 +63,38 @@ function ensureCss() {
         width: 100% !important;
         margin: 6px 0 !important;
       }
+      #${FAB_ID} {
+        position: fixed !important;
+        right: 18px !important;
+        bottom: 88px !important;
+        z-index: 2147483000 !important;
+        display: none;
+        align-items: center !important;
+        gap: 8px !important;
+        padding: 10px 14px !important;
+        border-radius: 999px !important;
+        border: 1px solid rgba(245,158,11,.7) !important;
+        background: rgba(20,20,24,.92) !important;
+        color: #fbbf24 !important;
+        box-shadow: 0 8px 24px rgba(0,0,0,.45) !important;
+        cursor: pointer !important;
+        font-weight: 700 !important;
+        font-size: 14px !important;
+      }
+      #${FAB_ID}.st-mk-fmzh-fab-show {
+        display: inline-flex !important;
+      }
     `;
     document.head.appendChild(style);
+}
+
+function isVisiblyLaidOut(el) {
+    if (!el || !el.isConnected) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) return false;
+    const st = window.getComputedStyle(el);
+    if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) === 0) return false;
+    return true;
 }
 
 function shieldMacros(text) {
@@ -122,56 +153,146 @@ function setVal(el, value) {
     if (window.jQuery) window.jQuery(el).trigger('input').trigger('change');
 }
 
-function collectAltJobs() {
+function findFirstMesTextarea() {
+    const selectors = [
+        '#firstmessage_textarea',
+        'textarea[name="first_mes"]',
+        '#first_message_div textarea',
+        'textarea[data-for="first_mes"]',
+    ];
+    const found = [];
+    for (const sel of selectors) {
+        document.querySelectorAll(sel).forEach((el) => {
+            if (el instanceof HTMLTextAreaElement && !found.includes(el)) found.push(el);
+        });
+    }
+    // Label-based: 第一条消息 / First message
+    document.querySelectorAll('h4, h3, label, .title_restorable, .inline-drawer-header, span, div').forEach((node) => {
+        const t = (node.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!/^(第一条消息|First message|First Message)/i.test(t) && !t.includes('第一条消息')) return;
+        const root = node.closest('#first_message_div, .form_create_bottom_part, #form_create, #rm_ch_create') || node.parentElement;
+        const ta = root?.querySelector?.('textarea');
+        if (ta instanceof HTMLTextAreaElement && !found.includes(ta)) found.push(ta);
+    });
+    const visible = found.find(isVisiblyLaidOut);
+    return visible || found[0] || null;
+}
+
+function resolveCharacterBundle() {
+    const ctx = getCtx();
+    const ta = findFirstMesTextarea();
+    let ch = null;
+    let chid = null;
+    let createMode = false;
+
+    try {
+        const alt = document.querySelector('.open_alternate_greetings');
+        if (alt && window.jQuery) {
+            const d = window.jQuery(alt).data('chid');
+            if (d === -1) createMode = true;
+            else if (d != null && d !== '') chid = Number(d);
+        }
+    } catch (_) { /* ignore */ }
+
+    if (chid == null && ctx?.characterId != null) chid = ctx.characterId;
+    if (chid == null && typeof globalThis.this_chid !== 'undefined') chid = globalThis.this_chid;
+
+    if (createMode && globalThis.create_save) {
+        return {
+            mode: 'create',
+            first: String(ta?.value ?? globalThis.create_save.first_mes ?? ''),
+            alts: Array.isArray(globalThis.create_save.alternate_greetings)
+                ? globalThis.create_save.alternate_greetings.map(String)
+                : [],
+            ta,
+            writeFirst(v) {
+                if (globalThis.create_save) globalThis.create_save.first_mes = v;
+                setVal(ta, v);
+            },
+            writeAlt(i, v) {
+                if (!globalThis.create_save) return;
+                if (!Array.isArray(globalThis.create_save.alternate_greetings)) {
+                    globalThis.create_save.alternate_greetings = [];
+                }
+                globalThis.create_save.alternate_greetings[i] = v;
+                const el = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text')[i];
+                if (el) setVal(el, v);
+            },
+        };
+    }
+
+    if (chid != null && ctx?.characters?.[chid]) {
+        ch = ctx.characters[chid];
+        if (!ch.data) ch.data = {};
+        if (!Array.isArray(ch.data.alternate_greetings)) ch.data.alternate_greetings = [];
+        const firstFromData = ch.data.first_mes ?? ch.first_mes ?? '';
+        return {
+            mode: 'edit',
+            chid,
+            first: String(ta?.value ?? firstFromData ?? ''),
+            alts: ch.data.alternate_greetings.map(String),
+            ta,
+            writeFirst(v) {
+                ch.first_mes = v;
+                ch.data.first_mes = v;
+                setVal(ta, v);
+            },
+            writeAlt(i, v) {
+                ch.data.alternate_greetings[i] = v;
+                const el = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text')[i];
+                if (el) setVal(el, v);
+            },
+        };
+    }
+
+    // Fallback: DOM / empty
+    const altJobs = [];
+    document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text').forEach((el, index) => {
+        altJobs.push(String(el.value ?? ''));
+    });
+    return {
+        mode: 'dom',
+        first: String(ta?.value ?? ''),
+        alts: altJobs,
+        ta,
+        writeFirst(v) { setVal(ta, v); },
+        writeAlt(i, v) {
+            const el = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text')[i];
+            if (el) setVal(el, v);
+        },
+    };
+}
+
+function collectAltJobs(bundle) {
     const jobs = [];
     document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text').forEach((el, index) => {
         const text = String(el.value ?? '');
         if (text.trim()) jobs.push({ source: 'dom', index, text, el });
     });
     if (jobs.length) return jobs;
-
-    try {
-        const ctx = getCtx();
-        const chidBtn = document.querySelector('.open_alternate_greetings');
-        const chid = chidBtn ? window.jQuery?.(chidBtn).data('chid') : undefined;
-        let arr = null;
-        if (chid === -1 && globalThis.create_save?.alternate_greetings) {
-            arr = globalThis.create_save.alternate_greetings;
-        } else if (chid != null && ctx?.characters?.[chid]?.data) {
-            if (!Array.isArray(ctx.characters[chid].data.alternate_greetings)) {
-                ctx.characters[chid].data.alternate_greetings = [];
-            }
-            arr = ctx.characters[chid].data.alternate_greetings;
-        } else if (ctx?.characterId != null && ctx.characters?.[ctx.characterId]?.data) {
-            const c = ctx.characters[ctx.characterId];
-            if (!Array.isArray(c.data.alternate_greetings)) c.data.alternate_greetings = [];
-            arr = c.data.alternate_greetings;
-        }
-        if (Array.isArray(arr)) {
-            arr.forEach((text, index) => {
-                if (String(text || '').trim()) jobs.push({ source: 'data', index, text: String(text), arr });
-            });
-        }
-    } catch (e) {
-        console.warn(LOG, e);
-    }
+    (bundle?.alts || []).forEach((text, index) => {
+        if (String(text || '').trim()) jobs.push({ source: 'data', index, text: String(text) });
+    });
     return jobs;
 }
 
-async function runBatch({ includeFirst, includeAlts }) {
-    const ta = document.querySelector('#firstmessage_textarea');
-    const first = ta ? String(ta.value ?? '') : '';
-    const altJobs = includeAlts ? collectAltJobs() : [];
+export async function runBatchTranslate({ includeFirst = true, includeAlts = true } = {}) {
+    const bundle = resolveCharacterBundle();
+    const altJobs = includeAlts ? collectAltJobs(bundle) : [];
     const tasks = [];
-    if (includeFirst && first.trim()) tasks.push({ kind: 'first', text: first });
+    if (includeFirst && String(bundle.first || '').trim()) {
+        tasks.push({ kind: 'first', text: bundle.first });
+    }
     for (const job of altJobs) tasks.push({ kind: 'alt', job, text: job.text });
 
     if (!tasks.length) {
         toastr?.info?.(includeAlts ? '第一条消息和候选开场都是空的' : '第一条消息是空的', '开场汉化');
-        return;
+        return { ok: false, reason: 'empty' };
     }
     if (looksMostlyChinese(tasks.map(t => t.text).join('\n'))) {
-        if (!confirm('内容看起来已经偏中文了。仍要再用 AI 翻译一遍吗？')) return;
+        if (!confirm('内容看起来已经偏中文了。仍要再用 AI 翻译一遍吗？')) {
+            return { ok: false, reason: 'cancelled' };
+        }
     }
 
     setBusy(true);
@@ -183,25 +304,26 @@ async function runBatch({ includeFirst, includeAlts }) {
             try {
                 const out = await translateWithAi(task.text);
                 if (!out?.trim()) throw new Error('空结果');
-                if (task.kind === 'first') setVal(ta, out);
+                if (task.kind === 'first') bundle.writeFirst(out);
                 else if (task.job.source === 'dom') setVal(task.job.el, out);
-                else if (task.job.source === 'data' && task.job.arr) task.job.arr[task.job.index] = out;
+                else bundle.writeAlt(task.job.index, out);
                 done += 1;
             } catch (e) {
                 failed += 1;
                 console.error(LOG, e);
             }
         }
-        if (done && !failed) toastr?.success?.(`已汉化 ${done} 段（请保存角色卡）`, '开场汉化');
+        if (done && !failed) toastr?.success?.(`已汉化 ${done} 段（请点保存角色卡）`, '开场汉化');
         else if (done) toastr?.warning?.(`完成 ${done}，失败 ${failed}`, '开场汉化');
         else toastr?.error?.('全部失败，请确认 API 已连接', '开场汉化');
+        return { ok: done > 0, done, failed, mode: bundle.mode };
     } finally {
         setBusy(false);
     }
 }
 
 function setBusy(on) {
-    [BTN_ID, ALT_BTN_ID].forEach((id) => {
+    [BTN_ID, ALT_BTN_ID, FAB_ID].forEach((id) => {
         const el = document.getElementById(id);
         if (!el) return;
         el.classList.toggle('st-mk-fmzh-busy', on);
@@ -225,51 +347,99 @@ function makeBtn(id, label, title, onClick) {
     return btn;
 }
 
+function purgeInvisibleDupes(id) {
+    const nodes = [...document.querySelectorAll(`#${id}`)];
+    if (nodes.length <= 1) {
+        if (nodes[0] && !nodes[0].isConnected) nodes[0].remove();
+        return document.getElementById(id);
+    }
+    let keep = nodes.find(isVisiblyLaidOut) || nodes[nodes.length - 1];
+    nodes.forEach((n) => { if (n !== keep) n.remove(); });
+    if (keep && !isVisiblyLaidOut(keep)) {
+        keep.remove();
+        return null;
+    }
+    return keep;
+}
+
+function editorLikelyOpen() {
+    const ta = findFirstMesTextarea();
+    if (ta && isVisiblyLaidOut(ta)) return true;
+    const anchors = [
+        '#first_message_div',
+        '#form_create',
+        '#rm_ch_create',
+        '#character_name_pole',
+        'textarea[name="first_mes"]',
+    ];
+    return anchors.some((sel) => {
+        const el = document.querySelector(sel);
+        return el && isVisiblyLaidOut(el);
+    });
+}
+
 function injectMain() {
     ensureCss();
-    if (document.getElementById(BTN_ID)) return true;
+    if (purgeInvisibleDupes(BTN_ID)) return { ok: true, where: 'existing' };
 
-    const ta = document.querySelector('#firstmessage_textarea');
-    if (!ta) return false;
-
+    const ta = findFirstMesTextarea();
     const btn = makeBtn(
         BTN_ID,
         '汉化开场',
         '用当前 AI 汉化第一条消息 + 全部候选开场',
-        () => runBatch({ includeFirst: true, includeAlts: true }),
+        () => runBatchTranslate({ includeFirst: true, includeAlts: true }),
     );
 
-    // A) beside 其他开场
-    const alt = document.querySelector('#first_message_div .open_alternate_greetings, .open_alternate_greetings');
+    // A) beside 其他开场 — prefer visible
+    const alts = [...document.querySelectorAll('.open_alternate_greetings, [class*="open_alternate"]')];
+    const alt = alts.find(isVisiblyLaidOut) || alts[0];
     if (alt?.parentElement) {
         alt.parentElement.insertBefore(btn, alt);
-        console.log(LOG, 'button injected before 其他开场');
-        return true;
+        if (isVisiblyLaidOut(btn) || btn.isConnected) {
+            console.log(LOG, 'button injected before 其他开场');
+            return { ok: true, where: 'beside-alt' };
+        }
     }
 
-    // B) wrap above textarea — impossible to miss
-    let wrap = document.getElementById('st_mk_fmzh_wrap');
-    if (!wrap) {
-        wrap = document.createElement('div');
-        wrap.id = 'st_mk_fmzh_wrap';
-        ta.parentElement?.insertBefore(wrap, ta);
+    // B) inside #first_message_div header
+    const fmDiv = document.querySelector('#first_message_div');
+    if (fmDiv) {
+        const header = fmDiv.querySelector('.title_restorable, .flex-container, div') || fmDiv;
+        header.appendChild(btn);
+        console.log(LOG, 'button injected into #first_message_div');
+        return { ok: true, where: 'first_message_div' };
     }
-    wrap.appendChild(btn);
-    console.log(LOG, 'button injected above #firstmessage_textarea');
-    return true;
+
+    // C) wrap above textarea
+    if (ta?.parentElement) {
+        let wrap = document.getElementById('st_mk_fmzh_wrap');
+        if (!wrap) {
+            wrap = document.createElement('div');
+            wrap.id = 'st_mk_fmzh_wrap';
+            ta.parentElement.insertBefore(wrap, ta);
+        }
+        wrap.appendChild(btn);
+        console.log(LOG, 'button injected above first-mes textarea');
+        return { ok: true, where: 'above-ta' };
+    }
+
+    btn.remove();
+    return { ok: false, where: 'none', reason: 'no textarea / first_message_div' };
 }
 
 function injectAlt() {
     ensureCss();
-    if (document.getElementById(ALT_BTN_ID)) return true;
-    const title = document.querySelector('.popup:not(.displayNone) .alternate_grettings .title_restorable, .popup .alternate_grettings .title_restorable, dialog .alternate_grettings .title_restorable');
+    if (purgeInvisibleDupes(ALT_BTN_ID)) return true;
+    const title = document.querySelector(
+        '.popup:not(.displayNone) .alternate_grettings .title_restorable, .popup .alternate_grettings .title_restorable, dialog .alternate_grettings .title_restorable',
+    );
     if (!title) return false;
     const add = title.querySelector('.add_alternate_greeting');
     const btn = makeBtn(
         ALT_BTN_ID,
         '全部汉化',
         '汉化弹窗内全部候选开场',
-        () => runBatch({ includeFirst: false, includeAlts: true }),
+        () => runBatchTranslate({ includeFirst: false, includeAlts: true }),
     );
     if (add) title.insertBefore(btn, add);
     else title.appendChild(btn);
@@ -277,32 +447,87 @@ function injectAlt() {
     return true;
 }
 
+function injectFab() {
+    ensureCss();
+    let fab = document.getElementById(FAB_ID);
+    if (!fab) {
+        fab = document.createElement('div');
+        fab.id = FAB_ID;
+        fab.setAttribute('role', 'button');
+        fab.title = '汉化当前角色第一条消息 + 候选开场（请先打开角色编辑）';
+        fab.innerHTML = `<i class="fa-solid fa-language"></i><span>汉化开场</span>`;
+        fab.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            runBatchTranslate({ includeFirst: true, includeAlts: true });
+        });
+        document.body.appendChild(fab);
+    }
+    const show = editorLikelyOpen();
+    fab.classList.toggle('st-mk-fmzh-fab-show', show);
+    return show;
+}
+
+export function diagnoseInject() {
+    const ta = findFirstMesTextarea();
+    const main = injectMain();
+    injectAlt();
+    const fabShow = injectFab();
+    const btn = document.getElementById(BTN_ID);
+    const info = {
+        moduleVersion: VERSION,
+        textareaFound: !!ta,
+        textareaId: ta?.id || null,
+        textareaVisible: !!(ta && isVisiblyLaidOut(ta)),
+        buttonInDom: !!btn,
+        buttonVisible: !!(btn && isVisiblyLaidOut(btn)),
+        inject: main,
+        fabVisible: fabShow,
+        editorOpen: editorLikelyOpen(),
+        hasGetContext: !!getCtx(),
+        hasGenerateRaw: !!getCtx()?.generateRaw,
+    };
+    console.log(LOG, 'diagnose', info);
+    return info;
+}
+
 function tick() {
     try {
         injectMain();
         injectAlt();
+        injectFab();
     } catch (e) {
         console.warn(LOG, 'tick', e);
     }
 }
 
+let started = false;
+
 export function initFirstMesZh() {
     ensureCss();
-    tick();
-    const obs = new MutationObserver(() => tick());
-    obs.observe(document.body, { childList: true, subtree: true });
-    document.addEventListener('click', (e) => {
-        const t = e.target;
-        if (!(t instanceof Element)) return;
-        if (t.closest('.character_select, .open_alternate_greetings, #rm_button_create, #rm_button_selected')) {
-            setTimeout(tick, 100);
-            setTimeout(tick, 400);
-            setTimeout(tick, 1000);
-        }
-    }, true);
-    setInterval(tick, 1000);
-    console.log(LOG, `module loaded v${VERSION} (no static ST imports)`);
+    if (!started) {
+        started = true;
+        const obs = new MutationObserver(() => tick());
+        obs.observe(document.body, { childList: true, subtree: true });
+        document.addEventListener('click', (e) => {
+            const t = e.target;
+            if (!(t instanceof Element)) return;
+            if (t.closest('.character_select, .open_alternate_greetings, #rm_button_create, #rm_button_selected, #rm_button_characters')) {
+                setTimeout(tick, 100);
+                setTimeout(tick, 400);
+                setTimeout(tick, 1000);
+            }
+        }, true);
+        setInterval(tick, 1000);
+    }
+    const d = diagnoseInject();
+    console.log(LOG, `module loaded v${VERSION}`, d);
     try {
-        toastr?.info?.('开场汉化已就绪：打开角色编辑，看「其他开场」旁或输入框上方的「汉化开场」', '酒馆小工具', { timeOut: 5000 });
+        if (d.buttonVisible || d.fabVisible) {
+            toastr?.info?.('开场汉化已就绪：看右下角悬浮「汉化开场」，或扩展设置里的「立即汉化」', '酒馆小工具', { timeOut: 4500 });
+        } else {
+            toastr?.warning?.('编辑页按钮暂未挂上，请用扩展设置「立即汉化当前角色开场」，或右下角悬浮球（打开角色编辑后出现）', '开场汉化', { timeOut: 7000 });
+        }
     } catch (_) { /* ignore */ }
+    return d;
 }

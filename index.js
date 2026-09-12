@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档
  * Author: molot23
- * Version: 1.1.3
+ * Version: 1.1.4
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.1.3';
+const VERSION = '1.1.4';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -77,7 +77,9 @@ function injectKitPanel() {
                         </label>
                     </div>
                     <small class="st-mk-note">开关变更后需刷新页面生效。合集 v${VERSION}</small>
-                    <button type="button" id="st_mk_force_fmzh" class="menu_button" style="margin-top:8px;">重新注入「汉化开场」按钮</button>
+                    <button type="button" id="st_mk_run_fmzh" class="menu_button" style="margin-top:8px;">立即汉化当前角色开场</button>
+                    <button type="button" id="st_mk_force_fmzh" class="menu_button" style="margin-top:6px;">重新注入 / 诊断「汉化开场」</button>
+                    <small class="st-mk-note">「立即汉化」不依赖编辑页按钮：先打开要改的角色卡，再点它。右下角也会出现悬浮「汉化开场」。</small>
                 </div>
             </div>
         </div>`;
@@ -98,14 +100,40 @@ function injectKitPanel() {
         saveKit();
         toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
     });
-    $('#st_mk_force_fmzh').on('click', async function () {
+    $('#st_mk_run_fmzh').on('click', async function () {
         try {
             ensureKitSettings().firstMesZh = true;
             $('#st_mk_first_mes_zh').prop('checked', true);
             saveKit();
             const m = await import('./modules/first-mes-zh.js');
             m.initFirstMesZh();
-            toastr.success('已重新注入。请打开角色编辑查看「汉化开场」。', '酒馆小工具');
+            await m.runBatchTranslate({ includeFirst: true, includeAlts: true });
+        } catch (e) {
+            console.error(LOG, e);
+            toastr.error(String(e && e.message ? e.message : e), '汉化失败');
+        }
+    });
+    $('#st_mk_force_fmzh').on('click', async function () {
+        try {
+            ensureKitSettings().firstMesZh = true;
+            $('#st_mk_first_mes_zh').prop('checked', true);
+            saveKit();
+            const m = await import('./modules/first-mes-zh.js');
+            const d = m.initFirstMesZh();
+            const lines = [
+                `模块 ${d.moduleVersion}`,
+                `textarea: ${d.textareaFound ? (d.textareaVisible ? '可见' : '找到但不可见') : '未找到'}`,
+                `编辑页按钮: ${d.buttonVisible ? '可见' : (d.buttonInDom ? '在DOM但不可见' : '无')}`,
+                `悬浮球: ${d.fabVisible ? '已显示' : '未显示（先打开角色编辑）'}`,
+                `generateRaw: ${d.hasGenerateRaw ? '有' : '无'}`,
+                `inject: ${d.inject && d.inject.where}`,
+            ];
+            console.log(LOG, 'diagnose', d);
+            if (d.buttonVisible || d.fabVisible) {
+                toastr.success(lines.join(' · '), '开场汉化诊断');
+            } else {
+                toastr.warning(lines.join(' · ') + ' —— 请用「立即汉化当前角色开场」', '开场汉化诊断');
+            }
         } catch (e) {
             console.error(LOG, e);
             toastr.error(String(e && e.message ? e.message : e), '注入失败');
