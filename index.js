@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 聊天分享 txt
  * Author: molot23
- * Version: 1.2.2
+ * Version: 1.2.3
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.2.2';
+const VERSION = '1.2.3';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -101,7 +101,7 @@ function injectKitPanel() {
                         <button type="button" id="st_mk_run_fmzh" class="menu_button st-mk-action-btn">立即汉化当前角色开场</button>
                         <button type="button" id="st_mk_force_fmzh" class="menu_button st-mk-action-btn">重新注入 / 诊断「汉化开场」</button>
                     </div>
-                    <small class="st-mk-note">聊天分享：先点上面「立即分享」最稳。三条杠菜单最上面也会有「分享聊天为 txt」（TauriTavern 可用）。不含角色卡。</small>
+                    <small class="st-mk-note">聊天分享：只走系统分享面板，绝不下载到本地；面板打不开时改复制剪贴板。不含角色卡。</small>
                 </div>
             </div>
         </div>`;

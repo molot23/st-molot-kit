@@ -1,10 +1,10 @@
 /**
- * Share current chat as .txt via Web Share API (mobile) or download fallback.
+ * Share current chat as .txt via system share sheet only. NEVER download/save locally.
  * Chat text only — no character card / Megumin memory.
  */
 
 const LOG = '[聊天分享]';
-const VERSION = '1.0.2';
+const VERSION = '1.1.0';
 const BTN_ID = 'st_mk_share_chat';
 const OPT_ID = 'st_mk_share_chat_option';
 const STYLE_ID = 'st_mk_share_chat_style';
@@ -121,42 +121,138 @@ function safeFilename() {
     return `${raw || 'chat'}_${tag}.txt`;
 }
 
-function downloadText(filename, text) {
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 2000);
+function isAbort(e) {
+    return e && (e.name === 'AbortError' || e.name === 'NotAllowedError');
 }
 
-async function shareOrDownload(filename, text) {
+function isIosRuntime() {
+    const ua = String(navigator.userAgent || '');
+    if (/iphone|ipad|ipod/i.test(ua)) return true;
+    return navigator.platform === 'MacIntel' && Number(navigator.maxTouchPoints || 0) > 1;
+}
+
+function isAndroidRuntime() {
+    return /android/i.test(String(navigator.userAgent || ''));
+}
+
+function getTauriInvoke() {
+    const invoke = globalThis.__TAURI__?.core?.invoke;
+    return typeof invoke === 'function' ? invoke : null;
+}
+
+/** iOS TauriTavern: stage temp file → system share sheet → cleanup. Never touches Downloads. */
+async function shareViaIosNative(filename, text) {
+    const invoke = getTauriInvoke();
+    if (!invoke || !isIosRuntime()) throw new Error('ios native share unavailable');
+
+    const pathApi = globalThis.__TAURI__?.path;
+    if (!pathApi?.join || !pathApi?.cacheDir) throw new Error('tauri path api missing');
+
+    const cacheDir = await pathApi.cacheDir();
+    const stageDir = await pathApi.join(cacheDir, 'st-molot-kit-share');
+    const filePath = await pathApi.join(stageDir, filename);
+
+    // mkdir + write via fs plugin
+    try {
+        await invoke('plugin:fs|mkdir', { path: stageDir, options: { recursive: true } });
+    } catch (_) {
+        // may already exist
+    }
+    const bytes = new TextEncoder().encode(text);
+    await invoke('plugin:fs|write_file', bytes, {
+        headers: {
+            path: encodeURIComponent(filePath),
+            options: JSON.stringify({ create: true, append: false }),
+        },
+    });
+
+    try {
+        const shareResult = await invoke('ios_share_file', { filePath });
+        return shareResult;
+    } finally {
+        try {
+            await invoke('plugin:fs|remove', { path: filePath, options: {} });
+        } catch (e) {
+            console.warn(LOG, 'cleanup staged share file failed', e);
+        }
+    }
+}
+
+async function copyToClipboard(text) {
+    if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+    }
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    if (!ok) throw new Error('clipboard copy failed');
+    return true;
+}
+
+/**
+ * System share sheet only. NEVER download / save to local storage folders.
+ * Order: file share → text share → iOS native share sheet → clipboard (not a file save).
+ */
+async function shareOnly(filename, text) {
     const file = new File([text], filename, { type: 'text/plain' });
-    try {
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-            await navigator.share({ files: [file], title: filename });
-            return 'shared';
+
+    // 1) Web Share API — file
+    if (typeof navigator.share === 'function') {
+        try {
+            const dataFile = { files: [file], title: filename, text: filename };
+            if (!navigator.canShare || navigator.canShare(dataFile)) {
+                await navigator.share(dataFile);
+                return 'shared-file';
+            }
+        } catch (e) {
+            if (isAbort(e)) return 'cancelled';
+            console.warn(LOG, 'file share failed', e);
         }
-    } catch (e) {
-        if (e && (e.name === 'AbortError' || e.name === 'NotAllowedError')) return 'cancelled';
-        console.warn(LOG, 'file share failed, fallback', e);
-    }
-    try {
-        // Some clients share text only (often truncated) — prefer download for full log
-        if (navigator.share && text.length <= 8000) {
-            await navigator.share({ title: filename, text });
-            return 'shared-text';
+
+        // 2) Web Share API — plain text (shows the same system sheet; Grok can accept text)
+        try {
+            const dataText = { title: filename, text };
+            if (!navigator.canShare || navigator.canShare(dataText)) {
+                await navigator.share(dataText);
+                return 'shared-text';
+            }
+        } catch (e) {
+            if (isAbort(e)) return 'cancelled';
+            console.warn(LOG, 'text share failed', e);
         }
-    } catch (e) {
-        if (e && e.name === 'AbortError') return 'cancelled';
-        console.warn(LOG, 'text share failed, download', e);
     }
-    downloadText(filename, text);
-    return 'downloaded';
+
+    // 3) TauriTavern iOS native share sheet (temp cache only, cleaned after)
+    if (getTauriInvoke() && isIosRuntime()) {
+        try {
+            const result = await shareViaIosNative(filename, text);
+            if (result && result.completed === false) return 'cancelled';
+            return 'shared-ios';
+        } catch (e) {
+            console.warn(LOG, 'ios_share_file failed', e);
+        }
+    }
+
+    // 4) Clipboard — not saving a file to disk
+    try {
+        await copyToClipboard(text);
+        return 'clipboard';
+    } catch (e) {
+        console.error(LOG, 'clipboard failed', e);
+    }
+
+    throw new Error(
+        isAndroidRuntime()
+            ? '当前环境无法打开系统分享。请确认 TauriTavern / WebView 允许分享，或换用支持 Web Share 的版本。不会下载到本地。'
+            : '无法打开系统分享，且复制到剪贴板也失败。不会下载到本地。',
+    );
 }
 
 export async function shareCurrentChat() {
@@ -170,14 +266,18 @@ export async function shareCurrentChat() {
     const btn = document.getElementById(BTN_ID);
     if (btn) btn.classList.add('st-mk-share-busy');
     try {
-        toastr?.info?.(`正在打包 ${pack.exported.length} 条…`, '聊天分享');
-        const mode = await shareOrDownload(filename, text);
+        toastr?.info?.(`正在打包 ${pack.exported.length} 条（仅系统分享，不保存本地）…`, '聊天分享');
+        const mode = await shareOnly(filename, text);
         if (mode === 'cancelled') {
             toastr?.info?.('已取消分享', '聊天分享');
-        } else if (mode === 'shared' || mode === 'shared-text') {
-            toastr?.success?.(`已分享 ${pack.exported.length} 条（${filename}）`, '聊天分享');
+        } else if (mode === 'clipboard') {
+            toastr?.warning?.(
+                `系统分享面板不可用，已复制 ${pack.exported.length} 条到剪贴板（未保存文件）。请打开 Grok 粘贴。`,
+                '聊天分享',
+                { timeOut: 8000 },
+            );
         } else {
-            toastr?.success?.(`已下载 ${filename}（${pack.exported.length} 条）。手机上可再从文件管理器分享到 Grok。`, '聊天分享');
+            toastr?.success?.(`已打开分享（${pack.exported.length} 条）。请选 Grok。`, '聊天分享');
         }
         return { ok: true, mode, count: pack.exported.length, filename };
     } catch (e) {
