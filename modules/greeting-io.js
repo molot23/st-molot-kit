@@ -4,7 +4,7 @@
  */
 
 const LOG = '[开场导入导出]';
-const VERSION = '1.4.4';
+const VERSION = '1.4.5';
 const STYLE_ID = 'st_mk_gio_style';
 
 const FIRST_EXPORT_ID = 'st_mk_gio_first_export';
@@ -304,11 +304,103 @@ async function copyText(text) {
     ta.remove();
 }
 
-async function readClipboard() {
-    if (navigator.clipboard?.readText) {
-        return await navigator.clipboard.readText();
+function promptPasteDialog(hint) {
+    return new Promise((resolve, reject) => {
+        const old = document.getElementById('st_mk_gio_paste_mask');
+        old?.remove();
+
+        const mask = document.createElement('div');
+        mask.id = 'st_mk_gio_paste_mask';
+        mask.style.cssText = [
+            'position:fixed', 'inset:0', 'z-index:2147483646',
+            'background:rgba(0,0,0,.55)', 'display:flex',
+            'align-items:center', 'justify-content:center', 'padding:16px',
+        ].join(';');
+
+        const box = document.createElement('div');
+        box.style.cssText = [
+            'width:min(560px,96vw)', 'max-height:85vh', 'overflow:auto',
+            'background:var(--SmartThemeBlurTintColor, #1e1e24)',
+            'color:var(--SmartThemeBodyColor, #eee)',
+            'border:1px solid rgba(255,255,255,.15)', 'border-radius:12px',
+            'padding:14px', 'box-shadow:0 12px 40px rgba(0,0,0,.5)',
+        ].join(';');
+
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight:700;margin-bottom:8px;font-size:15px;';
+        title.textContent = '粘贴译文后点确定';
+
+        const tip = document.createElement('div');
+        tip.style.cssText = 'opacity:.8;font-size:12px;margin-bottom:8px;line-height:1.4;';
+        tip.textContent = hint || 'Android 常禁止自动读剪贴板。请长按下方框 → 粘贴。';
+
+        const ta = document.createElement('textarea');
+        ta.className = 'text_pole';
+        ta.rows = 12;
+        ta.placeholder = '在这里粘贴汉化后的开场…';
+        ta.style.cssText = 'width:100%;min-height:180px;resize:vertical;box-sizing:border-box;';
+
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;';
+
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'menu_button';
+        cancel.textContent = '取消';
+
+        const ok = document.createElement('button');
+        ok.type = 'button';
+        ok.className = 'menu_button';
+        ok.textContent = '确定导入';
+        ok.style.fontWeight = '700';
+
+        function close() { mask.remove(); }
+
+        cancel.addEventListener('click', () => {
+            close();
+            resolve(null);
+        });
+        mask.addEventListener('click', (e) => {
+            if (e.target === mask) {
+                close();
+                resolve(null);
+            }
+        });
+        ok.addEventListener('click', () => {
+            const v = String(ta.value ?? '');
+            if (!v.trim()) {
+                toastr?.info?.('还没有粘贴内容', '开场导入导出');
+                return;
+            }
+            close();
+            resolve(v);
+        });
+
+        row.appendChild(cancel);
+        row.appendChild(ok);
+        box.appendChild(title);
+        box.appendChild(tip);
+        box.appendChild(ta);
+        box.appendChild(row);
+        mask.appendChild(box);
+        document.body.appendChild(mask);
+        setTimeout(() => {
+            try { ta.focus(); } catch (_) { /* ignore */ }
+        }, 50);
+    });
+}
+
+/** Prefer clipboard read; on Android denial fall back to paste dialog. */
+async function readClipboard(hint) {
+    try {
+        if (navigator.clipboard?.readText) {
+            const t = await navigator.clipboard.readText();
+            if (String(t ?? '').trim()) return t;
+        }
+    } catch (e) {
+        console.warn(LOG, 'clipboard read denied, use paste dialog', e);
     }
-    throw new Error('当前环境无法读取剪贴板，请检查权限');
+    return promptPasteDialog(hint || '请长按输入框粘贴译文，再点确定导入');
 }
 
 function packFirst(text) {
@@ -402,7 +494,8 @@ export async function exportFirstMes() {
 }
 
 export async function importFirstMes() {
-    const raw = await readClipboard();
+    const raw = await readClipboard('把汉化后的「主开场」粘贴到下方（长按粘贴）');
+    if (raw == null) return { ok: false, reason: 'cancelled' };
     const text = unpackFirst(raw);
     if (!String(text).trim()) {
         toastr?.info?.('解析后内容为空', '开场导入导出');
@@ -437,7 +530,8 @@ export async function exportAltGreetings() {
 }
 
 export async function importAltGreetings() {
-    const raw = await readClipboard();
+    const raw = await readClipboard('把汉化后的「候选开场」粘贴到下方（多条可用【候选N】分隔）');
+    if (raw == null) return { ok: false, reason: 'cancelled' };
     const alts = unpackAlts(raw);
     if (!confirm(`用剪贴板覆盖候选开场（共 ${alts.length} 条）？`)) {
         return { ok: false, reason: 'cancelled' };
@@ -463,7 +557,8 @@ export async function exportOneAlt(index) {
 }
 
 export async function importOneAlt(index) {
-    const raw = await readClipboard();
+    const raw = await readClipboard(`把候选 #${index + 1} 的译文粘贴到下方`);
+    if (raw == null) return { ok: false, reason: 'cancelled' };
     let text;
     try {
         const arr = unpackAlts(raw);
