@@ -1,0 +1,179 @@
+/* st-api-auto-retry — SillyTavern UI extension styles */
+
+.st-api-auto-retry-settings {
+    margin: 0.5rem 0;
+}
+
+.st-api-auto-retry-settings .st-api-auto-retry-desc {
+    opacity: 0.9;
+    margin: 0.25rem 0 0.75rem;
+    line-height: 1.4;
+}
+
+.st-api-auto-retry-settings .st-api-auto-retry-hint {
+    display: block;
+    opacity: 0.75;
+    margin: -0.25rem 0 0.75rem 1.6rem;
+    line-height: 1.3;
+}
+
+.st-api-auto-retry-settings label:not(.checkbox_label) {
+    display: block;
+    margin-top: 0.5rem;
+}
+
+.st-api-auto-retry-settings .checkbox_label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0.4rem 0;
+}
+
+.st-api-auto-retry-settings .text_pole {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.st-api-auto-retry-settings .st-api-auto-retry-footer {
+    margin-top: 0.75rem;
+    opacity: 0.6;
+}
+
+
+/* Retry status placeholder bubble in chat */
+#chat .mes.st-aar-placeholder,
+#chat .mes[data-st-aar="1"] {
+    opacity: 0.95;
+}
+
+#chat .mes.st-aar-placeholder .mes_text,
+#chat .mes[data-st-aar="1"] .mes_text {
+    white-space: pre-wrap;
+    border-left: 3px solid rgba(220, 80, 80, 0.75);
+    padding-left: 0.6em;
+    opacity: 0.92;
+    font-size: 0.95em;
+}
+/* st-char-pin-archive */
+
+.st-cpa-toolbar {
+    gap: 6px;
+    margin-left: 6px;
+    flex-shrink: 0;
+}
+
+.st-cpa-toolbtn {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 8px;
+}
+
+#rm_buttons_container .st-cpa-toolbtn,
+#rm_button_bar .st-cpa-toolbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.st-cpa-toolbtn.st-cpa-active {
+    color: var(--SmartThemeQuoteColor, #f59e0b);
+    border-color: rgba(245, 158, 11, 0.45);
+}
+
+.st-cpa-counts {
+    font-size: 0.72rem;
+    opacity: 0.75;
+    white-space: nowrap;
+}
+
+.st-cpa-actions {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: 6px;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+
+.st-cpa-btn {
+    appearance: none;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor, #444) 80%, transparent);
+    background: color-mix(in srgb, var(--SmartThemeBlurTintColor, #222) 70%, transparent);
+    color: var(--SmartThemeBodyColor, #ddd);
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    opacity: 0.55;
+    transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.character_select:hover .st-cpa-btn,
+.st-cpa-btn.st-cpa-on {
+    opacity: 1;
+}
+
+.st-cpa-btn.st-cpa-on {
+    color: var(--SmartThemeQuoteColor, #f59e0b);
+    border-color: rgba(245, 158, 11, 0.5);
+}
+
+.st-cpa-btn.st-cpa-archive.st-cpa-on {
+    color: #60a5fa;
+    border-color: rgba(96, 165, 250, 0.45);
+}
+
+.character_select.st-cpa-pinned {
+    box-shadow: inset 3px 0 0 var(--SmartThemeQuoteColor, #f59e0b);
+}
+
+.character_select.st-cpa-archived {
+    opacity: 0.85;
+}
+
+.st-cpa-settings {
+    margin: 10px 0;
+}
+
+.st-cpa-help {
+    font-size: 0.85rem;
+    opacity: 0.85;
+    line-height: 1.45;
+}
+
+.st-cpa-ver {
+    display: block;
+    margin-top: 8px;
+    opacity: 0.6;
+}
+
+@media (max-width: 768px) {
+    .st-cpa-btn {
+        opacity: 0.9;
+        width: 30px;
+        height: 30px;
+    }
+}
+
+/* st-molot-kit shell */
+.st-molot-kit-settings {
+    margin: 0.75rem 0;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--SmartThemeBorderColor, #444) 60%, transparent);
+}
+.st-molot-kit-settings .st-mk-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 6px 0;
+}
+.st-molot-kit-settings .st-mk-note {
+    font-size: 0.8rem;
+    opacity: 0.8;
+    line-height: 1.4;
+}
