@@ -5,7 +5,7 @@
  */
 
 const LOG = '[首条汉化]';
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const BTN_ID = 'st_mk_first_mes_zh';
 const ALT_BTN_ID = 'st_mk_alt_greetings_zh';
 const RESTORE_BTN_ID = 'st_mk_first_mes_zh_restore';
@@ -19,7 +19,7 @@ const SYSTEM_PROMPT = `你是机器翻译器，不是聊天助手，也不是分
 
 绝对禁止输出：
 - 任何思考过程、推理、分析、自评（包括：翻译思考记录、Paragraph、I realized、硬性规则复述、中英对照说明）
-- 前言、后记、「译文：」「如下：」、标题、清单、代码块围栏
+- 前言、后记、「译文：」「翻译输出」「如下：」、标题、清单、代码块围栏
 - <think> / <reasoning> 标签及其内容
 
 必须遵守：
@@ -135,7 +135,11 @@ function stripChrome(text) {
     t = t.replace(/<\/?think>/gi, '').trim();
     t = t.replace(/^[\s\S]*?(?:最终译文|最终结果|译文正文)\s*[:：]\s*/i, '').trim();
     if (t.startsWith('```')) t = t.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
-    t = t.replace(/^(译文|翻译结果|Translation|中文译文)\s*[:：]\s*/i, '').trim();
+    t = t.replace(/^(译文|翻译结果|Translation|中文译文|翻译输出)\s*[:：]?\s*/i, '').trim();
+    t = t.replace(/^\*{0,2}\s*翻译输出\s*\*{0,2}\s*[:：]?\s*/im, '').trim();
+    t = t.replace(/^#+\s*翻译输出\s*[:：]?\s*/im, '').trim();
+    // Keep stripping a lone first-line label like **翻译输出**
+    t = t.replace(/^\*\*翻译输出\*\*\s*/m, '').trim();
     if (/^(翻译思考|Paragraph\s*\d|I realized|硬性规则)/i.test(t)) {
         const parts = t.split(/\n{2,}/);
         const kept = parts.filter((block) => !/^(翻译思考|Paragraph\s*\d|I realized|硬性规则|Here is|以下是)/i.test(block.trim()));

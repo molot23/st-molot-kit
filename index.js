@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.3.2
+ * Version: 1.3.3
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.3.2';
+const VERSION = '1.3.3';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
