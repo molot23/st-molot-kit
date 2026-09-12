@@ -5,7 +5,7 @@
  */
 
 const LOG = '[首条汉化]';
-const VERSION = '1.4.0';
+const VERSION = '1.4.1';
 const BTN_ID = 'st_mk_first_mes_zh';
 const ALT_BTN_ID = 'st_mk_alt_greetings_zh';
 const FAB_ID = 'st_mk_fmzh_fab';
@@ -522,12 +522,11 @@ export function initFirstMesZh() {
     }
     const d = diagnoseInject();
     console.log(LOG, `module loaded v${VERSION}`, d);
-    try {
-        if (d.buttonVisible || d.fabVisible) {
-            toastr?.info?.('开场汉化已就绪：看右下角悬浮「汉化开场」，或扩展设置里的「立即汉化」', '酒馆小工具', { timeOut: 4500 });
-        } else {
-            toastr?.warning?.('编辑页按钮暂未挂上，请用扩展设置「立即汉化当前角色开场」，或右下角悬浮球（打开角色编辑后出现）', '开场汉化', { timeOut: 7000 });
-        }
-    } catch (_) { /* ignore */ }
+    // Quiet on boot — no yellow warning spam on TauriTavern. Use settings「立即汉化」/ diagnose.
+    console.log(LOG, 'boot diagnose (silent)', {
+        buttonVisible: d.buttonVisible,
+        fabVisible: d.fabVisible,
+        textareaFound: d.textareaFound,
+    });
     return d;
 }

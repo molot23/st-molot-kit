@@ -4,7 +4,7 @@
  */
 
 const LOG = '[聊天分享]';
-const VERSION = '1.1.0';
+const VERSION = '1.2.0';
 const BTN_ID = 'st_mk_share_chat';
 const OPT_ID = 'st_mk_share_chat_option';
 const STYLE_ID = 'st_mk_share_chat_style';
@@ -135,47 +135,14 @@ function isAndroidRuntime() {
     return /android/i.test(String(navigator.userAgent || ''));
 }
 
-function getTauriInvoke() {
-    const invoke = globalThis.__TAURI__?.core?.invoke;
-    return typeof invoke === 'function' ? invoke : null;
+function isTauriRuntime() {
+    return !!(globalThis.__TAURI__ || globalThis.__TAURI_INTERNALS__ || globalThis.__TAURI_RUNNING__);
 }
 
-/** iOS TauriTavern: stage temp file → system share sheet → cleanup. Never touches Downloads. */
-async function shareViaIosNative(filename, text) {
-    const invoke = getTauriInvoke();
-    if (!invoke || !isIosRuntime()) throw new Error('ios native share unavailable');
-
-    const pathApi = globalThis.__TAURI__?.path;
-    if (!pathApi?.join || !pathApi?.cacheDir) throw new Error('tauri path api missing');
-
-    const cacheDir = await pathApi.cacheDir();
-    const stageDir = await pathApi.join(cacheDir, 'st-molot-kit-share');
-    const filePath = await pathApi.join(stageDir, filename);
-
-    // mkdir + write via fs plugin
-    try {
-        await invoke('plugin:fs|mkdir', { path: stageDir, options: { recursive: true } });
-    } catch (_) {
-        // may already exist
-    }
-    const bytes = new TextEncoder().encode(text);
-    await invoke('plugin:fs|write_file', bytes, {
-        headers: {
-            path: encodeURIComponent(filePath),
-            options: JSON.stringify({ create: true, append: false }),
-        },
-    });
-
-    try {
-        const shareResult = await invoke('ios_share_file', { filePath });
-        return shareResult;
-    } finally {
-        try {
-            await invoke('plugin:fs|remove', { path: filePath, options: {} });
-        } catch (e) {
-            console.warn(LOG, 'cleanup staged share file failed', e);
-        }
-    }
+function getTauriInvoke() {
+    const invoke = globalThis.__TAURI__?.core?.invoke
+        || globalThis.__TAURI_INTERNALS__?.invoke;
+    return typeof invoke === 'function' ? invoke : null;
 }
 
 async function copyToClipboard(text) {
@@ -196,15 +163,110 @@ async function copyToClipboard(text) {
     return true;
 }
 
+/** Build Android ACTION_SEND intent URL (text/plain). */
+function buildAndroidSendIntentUrl(text, title) {
+    const parts = [
+        'action=android.intent.action.SEND',
+        'type=text/plain',
+        `S.android.intent.extra.SUBJECT=${encodeURIComponent(title || 'chat.txt')}`,
+        `S.android.intent.extra.TEXT=${encodeURIComponent(text)}`,
+        'end',
+    ];
+    return `intent:#Intent;${parts.join(';')}`;
+}
+
 /**
- * System share sheet only. NEVER download / save to local storage folders.
- * Order: file share → text share → iOS native share sheet → clipboard (not a file save).
+ * Open Android system share sheet via intent:// (Tauri opener or <a click>).
+ * No file is written to Downloads / local storage.
+ */
+async function shareViaAndroidIntent(text, title) {
+    const url = buildAndroidSendIntentUrl(text, title);
+    const invoke = getTauriInvoke();
+
+    if (invoke) {
+        const attempts = [
+            ['plugin:opener|open_url', { url }],
+            ['plugin:opener|open', { path: url }],
+            ['open_url', { url }],
+        ];
+        for (const [cmd, args] of attempts) {
+            try {
+                await invoke(cmd, args);
+                console.log(LOG, 'android intent via', cmd);
+                return 'shared-intent';
+            } catch (e) {
+                console.warn(LOG, cmd, e);
+            }
+        }
+    }
+
+    // DOM navigation fallback (still no local save)
+    try {
+        const a = document.createElement('a');
+        a.href = url;
+        a.rel = 'noopener';
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        console.log(LOG, 'android intent via <a>');
+        return 'shared-intent-anchor';
+    } catch (e) {
+        console.warn(LOG, 'anchor intent failed', e);
+    }
+
+    try {
+        window.location.href = url;
+        return 'shared-intent-location';
+    } catch (e) {
+        throw e;
+    }
+}
+
+/** iOS TauriTavern native share sheet; temp cache only, cleaned after. */
+async function shareViaIosNative(filename, text) {
+    const invoke = getTauriInvoke();
+    if (!invoke || !isIosRuntime()) throw new Error('ios native share unavailable');
+
+    const pathApi = globalThis.__TAURI__?.path;
+    if (!pathApi?.join || !pathApi?.cacheDir) throw new Error('tauri path api missing');
+
+    const cacheDir = await pathApi.cacheDir();
+    const stageDir = await pathApi.join(cacheDir, 'st-molot-kit-share');
+    const filePath = await pathApi.join(stageDir, filename);
+
+    try {
+        await invoke('plugin:fs|mkdir', { path: stageDir, options: { recursive: true } });
+    } catch (_) { /* exists */ }
+
+    const bytes = new TextEncoder().encode(text);
+    await invoke('plugin:fs|write_file', bytes, {
+        headers: {
+            path: encodeURIComponent(filePath),
+            options: JSON.stringify({ create: true, append: false }),
+        },
+    });
+
+    try {
+        const shareResult = await invoke('ios_share_file', { filePath });
+        return shareResult;
+    } finally {
+        try {
+            await invoke('plugin:fs|remove', { path: filePath, options: {} });
+        } catch (e) {
+            console.warn(LOG, 'cleanup staged share file failed', e);
+        }
+    }
+}
+
+/**
+ * MUST be called from a click handler with as little await-before-share as possible.
+ * Never downloads / never writes to public Downloads.
  */
 async function shareOnly(filename, text) {
-    const file = new File([text], filename, { type: 'text/plain' });
-
-    // 1) Web Share API — file
+    // 1) Web Share API (rare on Tauri Android WebView, but try first while gesture is hot)
     if (typeof navigator.share === 'function') {
+        const file = new File([text], filename, { type: 'text/plain' });
         try {
             const dataFile = { files: [file], title: filename, text: filename };
             if (!navigator.canShare || navigator.canShare(dataFile)) {
@@ -215,8 +277,6 @@ async function shareOnly(filename, text) {
             if (isAbort(e)) return 'cancelled';
             console.warn(LOG, 'file share failed', e);
         }
-
-        // 2) Web Share API — plain text (shows the same system sheet; Grok can accept text)
         try {
             const dataText = { title: filename, text };
             if (!navigator.canShare || navigator.canShare(dataText)) {
@@ -229,8 +289,39 @@ async function shareOnly(filename, text) {
         }
     }
 
-    // 3) TauriTavern iOS native share sheet (temp cache only, cleaned after)
-    if (getTauriInvoke() && isIosRuntime()) {
+    // 2) Android: system share sheet via ACTION_SEND intent (no local save)
+    if (isAndroidRuntime()) {
+        const encodedLen = encodeURIComponent(text).length;
+        // Intent URLs get flaky past ~30–40k; keep sheet working with full text when possible
+        if (encodedLen <= 35000) {
+            try {
+                return await shareViaAndroidIntent(text, filename);
+            } catch (e) {
+                console.warn(LOG, 'android intent full text failed', e);
+            }
+        }
+        // Long chat: open sheet with pointer; full body already goes to clipboard (not a file)
+        try {
+            await copyToClipboard(text);
+            const stub = [
+                '【酒馆聊天分享】',
+                `文件名: ${filename}`,
+                '完整正文已复制到剪贴板（未保存任何文件）。',
+                '请在分享目标（如 Grok）里粘贴。',
+                '',
+                '—— 预览 ——',
+                text.slice(0, 1200),
+                text.length > 1200 ? '\n…(后续在剪贴板)' : '',
+            ].join('\n');
+            await shareViaAndroidIntent(stub, filename);
+            return 'shared-intent-clipboard';
+        } catch (e) {
+            console.warn(LOG, 'android intent stub failed', e);
+        }
+    }
+
+    // 3) iOS Tauri native share sheet
+    if (isTauriRuntime() && isIosRuntime()) {
         try {
             const result = await shareViaIosNative(filename, text);
             if (result && result.completed === false) return 'cancelled';
@@ -240,7 +331,7 @@ async function shareOnly(filename, text) {
         }
     }
 
-    // 4) Clipboard — not saving a file to disk
+    // 4) Last resort: clipboard only (still not a file save)
     try {
         await copyToClipboard(text);
         return 'clipboard';
@@ -248,11 +339,7 @@ async function shareOnly(filename, text) {
         console.error(LOG, 'clipboard failed', e);
     }
 
-    throw new Error(
-        isAndroidRuntime()
-            ? '当前环境无法打开系统分享。请确认 TauriTavern / WebView 允许分享，或换用支持 Web Share 的版本。不会下载到本地。'
-            : '无法打开系统分享，且复制到剪贴板也失败。不会下载到本地。',
-    );
+    throw new Error('无法打开系统分享。未保存到本地。');
 }
 
 export async function shareCurrentChat() {
@@ -266,18 +353,24 @@ export async function shareCurrentChat() {
     const btn = document.getElementById(BTN_ID);
     if (btn) btn.classList.add('st-mk-share-busy');
     try {
-        toastr?.info?.(`正在打包 ${pack.exported.length} 条（仅系统分享，不保存本地）…`, '聊天分享');
+        // Avoid long awaits before shareOnly so user-gesture stays valid where Web Share exists
         const mode = await shareOnly(filename, text);
         if (mode === 'cancelled') {
             toastr?.info?.('已取消分享', '聊天分享');
         } else if (mode === 'clipboard') {
             toastr?.warning?.(
-                `系统分享面板不可用，已复制 ${pack.exported.length} 条到剪贴板（未保存文件）。请打开 Grok 粘贴。`,
+                `打不开系统分享面板，已复制 ${pack.exported.length} 条到剪贴板（未存文件）。请打开 Grok 粘贴。`,
                 '聊天分享',
                 { timeOut: 8000 },
             );
+        } else if (mode === 'shared-intent-clipboard') {
+            toastr?.success?.(
+                `已打开系统分享；全文在剪贴板（未存文件）。选 Grok 后若内容不全请粘贴。`,
+                '聊天分享',
+                { timeOut: 7000 },
+            );
         } else {
-            toastr?.success?.(`已打开分享（${pack.exported.length} 条）。请选 Grok。`, '聊天分享');
+            toastr?.success?.(`已打开系统分享（${pack.exported.length} 条）。请选 Grok。`, '聊天分享');
         }
         return { ok: true, mode, count: pack.exported.length, filename };
     } catch (e) {
@@ -330,8 +423,10 @@ function injectOptionsMenuItem() {
     a.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        closeOptionsMenu();
-        shareCurrentChat();
+        // Close menu AFTER kicking share so gesture stays warm
+        const run = shareCurrentChat();
+        setTimeout(closeOptionsMenu, 0);
+        return run;
     });
 
     // Put at TOP so it is hard to miss on mobile
