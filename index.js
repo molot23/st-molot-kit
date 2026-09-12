@@ -1,8 +1,8 @@
 /**
  * st-molot-kit — 酒馆小工具合集
- * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 复制聊天到剪贴板
+ * Bundles: API 自动重试 + 角色置顶与归档 + 开场导入导出 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.3.3
+ * Version: 1.4.0
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.3.3';
+const VERSION = '1.4.0';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -63,7 +63,7 @@ function injectKitPanel() {
                 </div>
                 <div class="inline-drawer-content">
                     <p class="st-mk-note">
-                        合集模块：API 自动重试、角色置顶与归档、开场汉化、复制聊天到剪贴板。下面可分别开关。
+                        合集模块：API 自动重试、角色置顶与归档、开场导入导出（剪贴板）、复制聊天、开场 AI 汉化（可选）。下面可分别开关。
                         旧插件的设置会沿用（无需重配）。装好本合集后，请禁用并卸载那两个单独扩展，避免重复加载。
                         Megumin Suite 汉化版请继续单独安装。
                     </p>
@@ -82,7 +82,7 @@ function injectKitPanel() {
                     <div class="st-mk-row">
                         <label class="checkbox_label">
                             <input type="checkbox" id="st_mk_first_mes_zh" ${s.firstMesZh ? 'checked' : ''}/>
-                            <span>开场汉化（首条+候选，当前 AI）</span>
+                            <span>开场工具（导入导出 + 可选 AI 汉化）</span>
                         </label>
                     </div>
                     <div class="st-mk-row">
@@ -98,11 +98,15 @@ function injectKitPanel() {
                     <small class="st-mk-note">开关变更后需刷新页面生效。合集 v${VERSION}</small>
                     <div class="st-mk-actions">
                         <button type="button" id="st_mk_run_share" class="menu_button st-mk-action-btn">复制当前聊天到剪贴板</button>
-                        <button type="button" id="st_mk_run_fmzh" class="menu_button st-mk-action-btn">立即汉化当前角色开场</button>
-                        <button type="button" id="st_mk_restore_fmzh" class="menu_button st-mk-action-btn">复原上次开场汉化</button>
-                        <button type="button" id="st_mk_force_fmzh" class="menu_button st-mk-action-btn">重新注入 / 诊断「汉化开场」</button>
+                        <button type="button" id="st_mk_gio_first_export" class="menu_button st-mk-action-btn">导出主开场到剪贴板</button>
+                        <button type="button" id="st_mk_gio_first_import" class="menu_button st-mk-action-btn">从剪贴板导入主开场</button>
+                        <button type="button" id="st_mk_gio_alt_export" class="menu_button st-mk-action-btn">导出候选开场到剪贴板</button>
+                        <button type="button" id="st_mk_gio_alt_import" class="menu_button st-mk-action-btn">从剪贴板导入候选开场</button>
+                        <button type="button" id="st_mk_run_fmzh" class="menu_button st-mk-action-btn">立即 AI 汉化开场（可选）</button>
+                        <button type="button" id="st_mk_restore_fmzh" class="menu_button st-mk-action-btn">复原上次 AI 汉化</button>
+                        <button type="button" id="st_mk_force_fmzh" class="menu_button st-mk-action-btn">重新注入开场按钮</button>
                     </div>
-                    <small class="st-mk-note">聊天导出：复制到剪贴板（不下载、不调系统分享）。开场汉化用「立即汉化」。</small>
+                    <small class="st-mk-note">推荐：导出开场 → 外面汉化 → 导入覆盖 → 保存角色卡。角色编辑页也有同款按钮。</small>
                 </div>
             </div>
         </div>`;
@@ -197,6 +201,30 @@ function injectKitPanel() {
             toastr.error(String(e && e.message ? e.message : e), '复制失败');
         }
     });
+    async function withGreetingIo(fn) {
+        ensureKitSettings().firstMesZh = true;
+        $('#st_mk_first_mes_zh').prop('checked', true);
+        saveKit();
+        const m = await import('./modules/greeting-io.js');
+        m.initGreetingIo();
+        await fn(m);
+    }
+    $('#st_mk_gio_first_export').on('click', async function () {
+        try { await withGreetingIo((m) => m.exportFirstMes()); }
+        catch (e) { console.error(LOG, e); toastr.error(String(e && e.message ? e.message : e), '导出失败'); }
+    });
+    $('#st_mk_gio_first_import').on('click', async function () {
+        try { await withGreetingIo((m) => m.importFirstMes()); }
+        catch (e) { console.error(LOG, e); toastr.error(String(e && e.message ? e.message : e), '导入失败'); }
+    });
+    $('#st_mk_gio_alt_export').on('click', async function () {
+        try { await withGreetingIo((m) => m.exportAltGreetings()); }
+        catch (e) { console.error(LOG, e); toastr.error(String(e && e.message ? e.message : e), '导出失败'); }
+    });
+    $('#st_mk_gio_alt_import').on('click', async function () {
+        try { await withGreetingIo((m) => m.importAltGreetings()); }
+        catch (e) { console.error(LOG, e); toastr.error(String(e && e.message ? e.message : e), '导入失败'); }
+    });
     return true;
 }
 
@@ -227,14 +255,19 @@ jQuery(() => {
         }
 
         if (s.firstMesZh) {
+            import('./modules/greeting-io.js')
+                .then((m) => m.initGreetingIo())
+                .catch((err) => {
+                    console.error(LOG, '开场导入导出加载失败', err);
+                    toastr.error('开场导入导出加载失败，请看控制台', '酒馆小工具');
+                });
             import('./modules/first-mes-zh.js')
                 .then((m) => m.initFirstMesZh())
                 .catch((err) => {
-                    console.error(LOG, '开场汉化模块加载失败', err);
-                    toastr.error('开场汉化模块加载失败，请看控制台', '酒馆小工具');
+                    console.error(LOG, '开场 AI 汉化模块加载失败', err);
                 });
         } else {
-            console.log(LOG, '首条汉化已关闭');
+            console.log(LOG, '开场工具已关闭');
         }
 
         if (s.shareChat) {
@@ -251,7 +284,7 @@ jQuery(() => {
         const parts = [];
         if (s.autoRetry) parts.push('自动重试');
         if (s.pinArchive) parts.push('置顶归档');
-        if (s.firstMesZh) parts.push('首条汉化');
+        if (s.firstMesZh) parts.push('开场导入导出');
         if (s.shareChat) parts.push('聊天复制');
         toastr.info(
             parts.length ? `已加载：${parts.join(' + ')}（v${VERSION}）` : `合集已加载，但模块均已关闭（v${VERSION}）`,
