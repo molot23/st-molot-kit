@@ -4,7 +4,7 @@
  */
 
 const LOG = '[开场导入导出]';
-const VERSION = '1.4.6';
+const VERSION = '1.4.7';
 const STYLE_ID = 'st_mk_gio_style';
 
 const FIRST_EXPORT_ID = 'st_mk_gio_first_export';
@@ -147,6 +147,12 @@ function ensureCss() {
       }
       .st-mk-gio-ta-wrap {
         position: relative !important;
+      }
+      #st_mk_gio_paste_dialog::backdrop {
+        background: rgba(0,0,0,.65) !important;
+      }
+      #st_mk_gio_paste_dialog {
+        z-index: 2147483647 !important;
       }
       #st_mk_gio_first_bar.st-mk-gio-overlay {
         position: absolute !important;
@@ -304,41 +310,39 @@ async function copyText(text) {
     ta.remove();
 }
 
+function findAltPopupRoot() {
+    const nodes = [
+        ...document.querySelectorAll('dialog[open], .popup:not(.displayNone), .popup.active, #dialogue_popup'),
+    ];
+    for (const n of nodes) {
+        if (n.querySelector?.('.alternate_grettings, .alternate_greetings, .alternate_greetings_list, .alternate_greeting_text')) {
+            return n;
+        }
+    }
+    return null;
+}
+
 function promptPasteDialog(hint) {
-    return new Promise((resolve, reject) => {
-        const old = document.getElementById('st_mk_gio_paste_mask');
-        old?.remove();
+    return new Promise((resolve) => {
+        document.getElementById('st_mk_gio_paste_mask')?.remove();
+        document.getElementById('st_mk_gio_paste_dialog')?.remove();
 
-        const mask = document.createElement('div');
-        mask.id = 'st_mk_gio_paste_mask';
-        mask.style.cssText = [
-            'position:fixed', 'inset:0', 'z-index:2147483647',
-            'background:rgba(0,0,0,.55)', 'display:flex',
-            'align-items:center', 'justify-content:center', 'padding:16px',
-        ].join(';');
-
-        const box = document.createElement('div');
-        box.style.cssText = [
-            'width:min(560px,96vw)', 'max-height:85vh', 'overflow:auto',
-            'background:var(--SmartThemeBlurTintColor, #1e1e24)',
-            'color:var(--SmartThemeBodyColor, #eee)',
-            'border:1px solid rgba(255,255,255,.15)', 'border-radius:12px',
-            'padding:14px', 'box-shadow:0 12px 40px rgba(0,0,0,.5)',
-        ].join(';');
+        const titleText = '粘贴译文后点确定';
+        const tipText = (hint || '请长按下方框粘贴') + '。点确定会直接覆盖，无需再确认。';
 
         const title = document.createElement('div');
         title.style.cssText = 'font-weight:700;margin-bottom:8px;font-size:15px;';
-        title.textContent = '粘贴译文后点确定';
+        title.textContent = titleText;
 
         const tip = document.createElement('div');
         tip.style.cssText = 'opacity:.8;font-size:12px;margin-bottom:8px;line-height:1.4;';
-        tip.textContent = (hint || '请长按下方框粘贴') + '。点确定会直接覆盖，无需再确认。';
+        tip.textContent = tipText;
 
         const ta = document.createElement('textarea');
         ta.className = 'text_pole';
         ta.rows = 12;
         ta.placeholder = '在这里粘贴汉化后的开场…';
-        ta.style.cssText = 'width:100%;min-height:180px;resize:vertical;box-sizing:border-box;';
+        ta.style.cssText = 'width:100%;min-height:180px;max-height:50vh;resize:vertical;box-sizing:border-box;';
 
         const row = document.createElement('div');
         row.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex-wrap:wrap;';
@@ -354,39 +358,128 @@ function promptPasteDialog(hint) {
         ok.textContent = '确定并覆盖导入';
         ok.style.fontWeight = '700';
 
-        function close() { mask.remove(); }
+        row.appendChild(cancel);
+        row.appendChild(ok);
 
-        cancel.addEventListener('click', () => {
-            close();
-            resolve(null);
+        const boxStyle = [
+            'width:min(560px,96vw)', 'max-height:85vh', 'overflow:auto',
+            'background:var(--SmartThemeBlurTintColor, #1e1e24)',
+            'color:var(--SmartThemeBodyColor, #eee)',
+            'border:1px solid rgba(255,255,255,.2)', 'border-radius:12px',
+            'padding:14px', 'box-shadow:0 12px 40px rgba(0,0,0,.5)',
+            'box-sizing:border-box',
+        ].join(';');
+
+        let settled = false;
+        function finish(val) {
+            if (settled) return;
+            settled = true;
+            try { dlg.close?.(); } catch (_) { /* ignore */ }
+            dlg.remove();
+            resolve(val);
+        }
+
+        // Prefer <dialog showModal> — enters browser top layer above ST popups
+        const dlg = document.createElement('dialog');
+        dlg.id = 'st_mk_gio_paste_dialog';
+        dlg.style.cssText = boxStyle + ';margin:auto;border:none;';
+        dlg.appendChild(title);
+        dlg.appendChild(tip);
+        dlg.appendChild(ta);
+        dlg.appendChild(row);
+
+        cancel.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            finish(null);
         });
-        mask.addEventListener('click', (e) => {
-            if (e.target === mask) {
-                close();
-                resolve(null);
-            }
-        });
-        ok.addEventListener('click', () => {
+        ok.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             const v = String(ta.value ?? '');
             if (!v.trim()) {
                 toastr?.info?.('还没有粘贴内容', '开场导入导出');
                 return;
             }
-            close();
-            resolve(v);
+            finish(v);
+        });
+        dlg.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            finish(null);
+        });
+        dlg.addEventListener('click', (e) => {
+            // click backdrop (dialog itself) to cancel
+            if (e.target === dlg) finish(null);
         });
 
-        row.appendChild(cancel);
-        row.appendChild(ok);
-        box.appendChild(title);
-        box.appendChild(tip);
-        box.appendChild(ta);
-        box.appendChild(row);
-        mask.appendChild(box);
-        (document.documentElement || document.body).appendChild(mask);
+        document.body.appendChild(dlg);
+
+        let opened = false;
+        try {
+            if (typeof dlg.showModal === 'function') {
+                dlg.showModal();
+                opened = true;
+            }
+        } catch (e) {
+            console.warn(LOG, 'showModal failed', e);
+        }
+
+        if (!opened) {
+            // Fallback: mount overlay inside the alternate-greetings popup (same stacking context)
+            dlg.remove();
+            const mask = document.createElement('div');
+            mask.id = 'st_mk_gio_paste_mask';
+            mask.style.cssText = [
+                'position:absolute', 'inset:0', 'z-index:999999',
+                'background:rgba(0,0,0,.55)', 'display:flex',
+                'align-items:center', 'justify-content:center', 'padding:12px',
+            ].join(';');
+            const box = document.createElement('div');
+            box.style.cssText = boxStyle;
+            box.appendChild(title);
+            box.appendChild(tip);
+            box.appendChild(ta);
+            box.appendChild(row);
+            mask.appendChild(box);
+
+            const host = findAltPopupRoot() || document.body;
+            const prevPos = host.style.position;
+            if (host !== document.body) {
+                const cs = window.getComputedStyle(host);
+                if (cs.position === 'static') host.style.position = 'relative';
+            } else {
+                mask.style.position = 'fixed';
+                mask.style.zIndex = '2147483647';
+            }
+            host.appendChild(mask);
+            cancel.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (settled) return;
+                settled = true;
+                mask.remove();
+                if (host !== document.body && prevPos !== undefined) host.style.position = prevPos;
+                resolve(null);
+            };
+            ok.onclick = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const v = String(ta.value ?? '');
+                if (!v.trim()) {
+                    toastr?.info?.('还没有粘贴内容', '开场导入导出');
+                    return;
+                }
+                if (settled) return;
+                settled = true;
+                mask.remove();
+                if (host !== document.body && prevPos !== undefined) host.style.position = prevPos;
+                resolve(v);
+            };
+        }
+
         setTimeout(() => {
             try { ta.focus(); } catch (_) { /* ignore */ }
-        }, 50);
+        }, 80);
     });
 }
 
