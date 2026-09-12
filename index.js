@@ -2,17 +2,16 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档
  * Author: molot23
- * Version: 1.1.2
+ * Version: 1.1.3
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
-import { initFirstMesZh } from './modules/first-mes-zh.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.1.2';
+const VERSION = '1.1.3';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -78,6 +77,7 @@ function injectKitPanel() {
                         </label>
                     </div>
                     <small class="st-mk-note">开关变更后需刷新页面生效。合集 v${VERSION}</small>
+                    <button type="button" id="st_mk_force_fmzh" class="menu_button" style="margin-top:8px;">重新注入「汉化开场」按钮</button>
                 </div>
             </div>
         </div>`;
@@ -97,6 +97,19 @@ function injectKitPanel() {
         ensureKitSettings().firstMesZh = $(this).is(':checked');
         saveKit();
         toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
+    });
+    $('#st_mk_force_fmzh').on('click', async function () {
+        try {
+            ensureKitSettings().firstMesZh = true;
+            $('#st_mk_first_mes_zh').prop('checked', true);
+            saveKit();
+            const m = await import('./modules/first-mes-zh.js');
+            m.initFirstMesZh();
+            toastr.success('已重新注入。请打开角色编辑查看「汉化开场」。', '酒馆小工具');
+        } catch (e) {
+            console.error(LOG, e);
+            toastr.error(String(e && e.message ? e.message : e), '注入失败');
+        }
     });
     return true;
 }
@@ -128,7 +141,12 @@ jQuery(() => {
         }
 
         if (s.firstMesZh) {
-            initFirstMesZh();
+            import('./modules/first-mes-zh.js')
+                .then((m) => m.initFirstMesZh())
+                .catch((err) => {
+                    console.error(LOG, '开场汉化模块加载失败', err);
+                    toastr.error('开场汉化模块加载失败，请看控制台', '酒馆小工具');
+                });
         } else {
             console.log(LOG, '首条汉化已关闭');
         }
