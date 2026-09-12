@@ -4,7 +4,7 @@
  */
 
 const LOG = '[开场导入导出]';
-const VERSION = '1.4.5';
+const VERSION = '1.4.6';
 const STYLE_ID = 'st_mk_gio_style';
 
 const FIRST_EXPORT_ID = 'st_mk_gio_first_export';
@@ -312,7 +312,7 @@ function promptPasteDialog(hint) {
         const mask = document.createElement('div');
         mask.id = 'st_mk_gio_paste_mask';
         mask.style.cssText = [
-            'position:fixed', 'inset:0', 'z-index:2147483646',
+            'position:fixed', 'inset:0', 'z-index:2147483647',
             'background:rgba(0,0,0,.55)', 'display:flex',
             'align-items:center', 'justify-content:center', 'padding:16px',
         ].join(';');
@@ -332,7 +332,7 @@ function promptPasteDialog(hint) {
 
         const tip = document.createElement('div');
         tip.style.cssText = 'opacity:.8;font-size:12px;margin-bottom:8px;line-height:1.4;';
-        tip.textContent = hint || 'Android 常禁止自动读剪贴板。请长按下方框 → 粘贴。';
+        tip.textContent = (hint || '请长按下方框粘贴') + '。点确定会直接覆盖，无需再确认。';
 
         const ta = document.createElement('textarea');
         ta.className = 'text_pole';
@@ -351,7 +351,7 @@ function promptPasteDialog(hint) {
         const ok = document.createElement('button');
         ok.type = 'button';
         ok.className = 'menu_button';
-        ok.textContent = '确定导入';
+        ok.textContent = '确定并覆盖导入';
         ok.style.fontWeight = '700';
 
         function close() { mask.remove(); }
@@ -383,7 +383,7 @@ function promptPasteDialog(hint) {
         box.appendChild(ta);
         box.appendChild(row);
         mask.appendChild(box);
-        document.body.appendChild(mask);
+        (document.documentElement || document.body).appendChild(mask);
         setTimeout(() => {
             try { ta.focus(); } catch (_) { /* ignore */ }
         }, 50);
@@ -501,7 +501,7 @@ export async function importFirstMes() {
         toastr?.info?.('解析后内容为空', '开场导入导出');
         return { ok: false };
     }
-    if (!confirm('用剪贴板内容覆盖「第一条消息 / 主开场」？')) return { ok: false, reason: 'cancelled' };
+    // No window.confirm — Android/WebView often blocks it after paste dialog
     resolveBundle().writeFirst(text);
     toastr?.success?.('已导入主开场（请保存角色卡）', '开场导入导出');
     return { ok: true };
@@ -530,14 +530,19 @@ export async function exportAltGreetings() {
 }
 
 export async function importAltGreetings() {
+    toastr?.info?.('打开粘贴框…', '开场导入导出', { timeOut: 1500 });
     const raw = await readClipboard('把汉化后的「候选开场」粘贴到下方（多条可用【候选N】分隔）');
     if (raw == null) return { ok: false, reason: 'cancelled' };
     const alts = unpackAlts(raw);
-    if (!confirm(`用剪贴板覆盖候选开场（共 ${alts.length} 条）？`)) {
-        return { ok: false, reason: 'cancelled' };
+    if (!alts.length || !alts.some((x) => String(x).trim())) {
+        toastr?.info?.('解析后没有可用的候选开场', '开场导入导出');
+        return { ok: false };
     }
-    resolveBundle().writeAlts(alts);
-    toastr?.success?.(`已导入 ${alts.length} 条候选开场（请保存角色卡）`, '开场导入导出');
+    const written = await writeAltsRobust(alts);
+    toastr?.success?.(
+        `已导入 ${written} 条候选开场（请保存角色卡）`,
+        '开场导入导出',
+    );
     return { ok: true, count: alts.length };
 }
 
@@ -567,19 +572,72 @@ export async function importOneAlt(index) {
         text = unpackFirst(raw);
     }
     if (!String(text).trim()) {
-        toastr?.info?.('剪贴板内容为空', '开场导入导出');
+        toastr?.info?.('内容为空', '开场导入导出');
         return { ok: false };
     }
-    if (!confirm(`用剪贴板覆盖候选开场 #${index + 1}？`)) return { ok: false, reason: 'cancelled' };
-    const nodes = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text');
-    if (nodes[index]) setVal(nodes[index], text);
     const b = resolveBundle();
     const alts = [...(b.alts || [])];
-    while (alts.length <= index) alts.push('');
+    // Prefer live DOM length
+    const domLen = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text').length;
+    const baseLen = Math.max(alts.length, domLen, index + 1);
+    while (alts.length < baseLen) alts.push('');
+    for (let i = 0; i < baseLen; i++) {
+        if (alts[i] === undefined || alts[i] === '') {
+            const el = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text')[i];
+            if (el) alts[i] = String(el.value ?? '');
+        }
+    }
     alts[index] = text;
-    b.writeAlts(alts);
+    await writeAltsRobust(alts);
     toastr?.success?.(`已导入候选 #${index + 1}（请保存角色卡）`, '开场导入导出');
     return { ok: true };
+}
+
+
+function getAltTextareas() {
+    return [...document.querySelectorAll(
+        '.alternate_greetings_list .alternate_greeting_text, .alternate_grettings .alternate_greeting_text, textarea.alternate_greeting_text',
+    )];
+}
+
+function getAddAltButton() {
+    return document.querySelector(
+        '.popup:not(.displayNone) .add_alternate_greeting, dialog .add_alternate_greeting, .alternate_grettings .add_alternate_greeting, .alternate_greetings .add_alternate_greeting, .add_alternate_greeting',
+    );
+}
+
+async function ensureAltSlotCount(need) {
+    let nodes = getAltTextareas();
+    let guard = 0;
+    while (nodes.length < need && guard < 40) {
+        guard += 1;
+        const add = getAddAltButton();
+        if (!add) break;
+        add.click();
+        await new Promise((r) => setTimeout(r, 80));
+        nodes = getAltTextareas();
+    }
+    return getAltTextareas();
+}
+
+/** Write alts to character data + live popup textareas (create missing rows). */
+async function writeAltsRobust(alts) {
+    const list = (alts || []).map((x) => String(x ?? ''));
+    const b = resolveBundle();
+    // Data first
+    try { b.writeAlts(list); } catch (e) { console.warn(LOG, 'writeAlts data', e); }
+
+    const nodes = await ensureAltSlotCount(list.length);
+    list.forEach((text, i) => {
+        if (nodes[i]) setVal(nodes[i], text);
+    });
+    // Sync data again after DOM grow
+    try { b.writeAlts(list); } catch (_) { /* ignore */ }
+
+    // If popup closed / no DOM, still OK if data written
+    const visible = getAltTextareas().filter((el) => String(el.value ?? '').trim()).length;
+    console.log(LOG, 'writeAltsRobust', { want: list.length, dom: nodes.length, visible });
+    return list.length;
 }
 
 function makeBtn(id, label, title, onClick, extraClass = '') {
@@ -680,16 +738,18 @@ function injectPerAltButtons() {
 function injectAltHeaderButtons() {
     ensureCss();
     const title = document.querySelector(
-        '.popup:not(.displayNone) .alternate_grettings .title_restorable, .popup .alternate_grettings .title_restorable, dialog .alternate_grettings .title_restorable, .popup .alternate_greetings .title_restorable',
+        '.popup:not(.displayNone) .alternate_grettings .title_restorable, .popup:not(.displayNone) .alternate_greetings .title_restorable, dialog:not([hidden]) .alternate_grettings .title_restorable, dialog .alternate_greetings .title_restorable, .popup .alternate_grettings .title_restorable, .popup .alternate_greetings .title_restorable',
     );
     if (!title) return false;
-    let exp = document.getElementById(ALT_EXPORT_ID);
-    let imp = document.getElementById(ALT_IMPORT_ID);
-    if (!exp || !imp) {
-        exp?.remove();
-        imp?.remove();
-        exp = makeBtn(ALT_EXPORT_ID, '导出候选', '复制全部候选开场到剪贴板（首次导出自动备份）', () => exportAltGreetings());
-        imp = makeBtn(ALT_IMPORT_ID, '导入候选', '用剪贴板覆盖全部候选开场', () => importAltGreetings(), 'st-mk-gio-import');
+
+    if (!title.contains(document.getElementById(ALT_EXPORT_ID))
+        || !title.contains(document.getElementById(ALT_IMPORT_ID))
+        || !title.contains(document.getElementById(ALT_RESTORE_ID))) {
+        document.getElementById(ALT_EXPORT_ID)?.remove();
+        document.getElementById(ALT_IMPORT_ID)?.remove();
+        document.getElementById(ALT_RESTORE_ID)?.remove();
+        const exp = makeBtn(ALT_EXPORT_ID, '导出候选', '复制全部候选开场到剪贴板（首次导出自动备份）', () => exportAltGreetings());
+        const imp = makeBtn(ALT_IMPORT_ID, '导入候选', '粘贴并覆盖全部候选开场', () => importAltGreetings(), 'st-mk-gio-import');
         const rst = makeBtn(ALT_RESTORE_ID, '还原', '还原到本卡第一次导出时的原文', () => restoreOriginalBackup(), 'st-mk-gio-restore');
         const add = title.querySelector('.add_alternate_greeting');
         if (add) {
