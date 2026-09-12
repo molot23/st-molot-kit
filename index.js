@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 聊天分享 txt
  * Author: molot23
- * Version: 1.2.5
+ * Version: 1.2.6
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.2.5';
+const VERSION = '1.2.6';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -97,6 +97,7 @@ function injectKitPanel() {
                     </div>
                     <small class="st-mk-note">开关变更后需刷新页面生效。合集 v${VERSION}</small>
                     <div class="st-mk-actions">
+                        <button type="button" id="st_mk_diag_share" class="menu_button st-mk-action-btn">分享诊断（测试系统面板）</button>
                         <button type="button" id="st_mk_run_share" class="menu_button st-mk-action-btn">立即分享当前聊天</button>
                         <button type="button" id="st_mk_run_fmzh" class="menu_button st-mk-action-btn">立即汉化当前角色开场</button>
                         <button type="button" id="st_mk_force_fmzh" class="menu_button st-mk-action-btn">重新注入 / 诊断「汉化开场」</button>
@@ -171,6 +172,32 @@ function injectKitPanel() {
         } catch (e) {
             console.error(LOG, e);
             toastr.error(String(e && e.message ? e.message : e), '注入失败');
+        }
+    });
+    $('#st_mk_diag_share').on('click', async function () {
+        try {
+            const m = await import('./modules/share-chat-txt.js');
+            m.initShareChatTxt();
+            const d = await m.diagnoseShare();
+            const summary = [
+                `v${d.moduleVersion}`,
+                `android=${d.android}`,
+                `tauri=${d.tauri}`,
+                `nav.share=${d.hasNavigatorShare}`,
+                `invoke=${d.hasTauriInvoke}`,
+                `result=${d.result}`,
+                d.via ? `via=${d.via}` : '',
+            ].filter(Boolean).join(' · ');
+            const detail = (d.steps || []).slice(-6).join(' | ');
+            console.log(LOG, 'share diagnose', d);
+            if (d.result === 'cancelled-but-sheet-ok' || String(d.result || '').startsWith('shared')) {
+                toastr.success(`${summary}\n${detail}`, '分享诊断', { timeOut: 12000 });
+            } else {
+                toastr.info(`${summary}\n${detail}`, '分享诊断', { timeOut: 12000 });
+            }
+        } catch (e) {
+            console.error(LOG, e);
+            toastr.error(String(e && e.message ? e.message : e), '分享诊断失败');
         }
     });
     $('#st_mk_run_share').on('click', async function () {

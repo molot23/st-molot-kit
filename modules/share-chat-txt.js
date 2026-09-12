@@ -4,7 +4,7 @@
  */
 
 const LOG = '[聊天分享]';
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const BTN_ID = 'st_mk_share_chat';
 const OPT_ID = 'st_mk_share_chat_option';
 const STYLE_ID = 'st_mk_share_chat_style';
@@ -179,46 +179,67 @@ function buildAndroidSendIntentUrl(text, title) {
  * Open Android system share sheet via intent:// (Tauri opener or <a click>).
  * No file is written to Downloads / local storage.
  */
-async function shareViaAndroidIntent(text, title) {
+async function shareViaAndroidIntent(text, title, { collectLog = null } = {}) {
     const url = buildAndroidSendIntentUrl(text, title);
     const invoke = getTauriInvoke();
+    const log = (msg) => {
+        console.log(LOG, msg);
+        if (Array.isArray(collectLog)) collectLog.push(String(msg));
+    };
+    const fail = (msg) => {
+        console.warn(LOG, msg);
+        if (Array.isArray(collectLog)) collectLog.push(`FAIL: ${msg}`);
+    };
 
     if (invoke) {
         const attempts = [
             ['plugin:opener|open_url', { url }],
+            ['plugin:opener|open_url', { url, with: null }],
             ['plugin:opener|open', { path: url }],
             ['open_url', { url }],
         ];
         for (const [cmd, args] of attempts) {
             try {
                 await invoke(cmd, args);
-                console.log(LOG, 'android intent via', cmd);
-                return 'shared-intent';
+                log(`intent ok via invoke ${cmd}`);
+                return { mode: 'shared-intent', via: cmd, urlLen: url.length };
             } catch (e) {
-                console.warn(LOG, cmd, e);
+                fail(`invoke ${cmd}: ${e && e.message ? e.message : e}`);
             }
         }
+    } else {
+        fail('no tauri invoke');
     }
 
-    // DOM navigation fallback (still no local save)
     try {
         const a = document.createElement('a');
         a.href = url;
         a.rel = 'noopener';
+        a.target = '_blank';
         a.style.display = 'none';
         document.body.appendChild(a);
         a.click();
         a.remove();
-        console.log(LOG, 'android intent via <a>');
-        return 'shared-intent-anchor';
+        log('intent fired via <a click>');
+        return { mode: 'shared-intent-anchor', via: 'a.click', urlLen: url.length };
     } catch (e) {
-        console.warn(LOG, 'anchor intent failed', e);
+        fail(`a.click: ${e && e.message ? e.message : e}`);
+    }
+
+    try {
+        const opened = window.open(url, '_blank');
+        log(`intent via window.open -> ${opened ? 'obj' : 'null'}`);
+        return { mode: 'shared-intent-open', via: 'window.open', urlLen: url.length };
+    } catch (e) {
+        fail(`window.open: ${e && e.message ? e.message : e}`);
     }
 
     try {
         window.location.href = url;
-        return 'shared-intent-location';
+        log('intent via location.href');
+        return { mode: 'shared-intent-location', via: 'location.href', urlLen: url.length };
     } catch (e) {
+        fail(`location.href: ${e && e.message ? e.message : e}`);
         throw e;
     }
 }
@@ -295,7 +316,8 @@ async function shareOnly(filename, text) {
         // Intent URLs get flaky past ~30–40k; keep sheet working with full text when possible
         if (encodedLen <= 35000) {
             try {
-                return await shareViaAndroidIntent(text, filename);
+                const r = await shareViaAndroidIntent(text, filename);
+                return r?.mode || 'shared-intent';
             } catch (e) {
                 console.warn(LOG, 'android intent full text failed', e);
             }
@@ -313,8 +335,10 @@ async function shareOnly(filename, text) {
                 text.slice(0, 1200),
                 text.length > 1200 ? '\n…(后续在剪贴板)' : '',
             ].join('\n');
-            await shareViaAndroidIntent(stub, filename);
-            return 'shared-intent-clipboard';
+            const r = await shareViaAndroidIntent(stub, filename);
+            return r?.mode === 'shared-intent' || String(r?.mode || '').startsWith('shared-intent')
+                ? 'shared-intent-clipboard'
+                : (r?.mode || 'shared-intent-clipboard');
         } catch (e) {
             console.warn(LOG, 'android intent stub failed', e);
         }
@@ -462,6 +486,77 @@ function injectLeftButton() {
     else left.prepend(btn);
     return true;
 }
+
+
+/** Probe env + fire a tiny ACTION_SEND. User should see system share sheet if Intent works. */
+export async function diagnoseShare() {
+    const steps = [];
+    const info = {
+        moduleVersion: VERSION,
+        android: isAndroidRuntime(),
+        ios: isIosRuntime(),
+        tauri: isTauriRuntime(),
+        hasNavigatorShare: typeof navigator.share === 'function',
+        hasCanShare: typeof navigator.canShare === 'function',
+        hasTauriInvoke: !!getTauriInvoke(),
+        hasOpenerBridge: !!(globalThis.__TAURI__?.opener || globalThis.__TAURI__?.core),
+        ua: String(navigator.userAgent || '').slice(0, 120),
+        steps,
+    };
+
+    const probeText = '【酒馆小工具·分享探针】若你看到系统分享面板，说明 Intent 通路可用。';
+    const probeName = 'st-molot-kit-share-probe.txt';
+
+    // Web Share probe (short)
+    if (typeof navigator.share === 'function') {
+        try {
+            await navigator.share({ title: probeName, text: probeText });
+            steps.push('navigator.share(text): OK / sheet shown or completed');
+            info.result = 'shared-text';
+            console.log(LOG, 'diagnose', info);
+            return info;
+        } catch (e) {
+            if (isAbort(e)) {
+                steps.push('navigator.share: user cancelled (sheet DID open)');
+                info.result = 'cancelled-but-sheet-ok';
+                console.log(LOG, 'diagnose', info);
+                return info;
+            }
+            steps.push(`navigator.share: ${e && e.message ? e.message : e}`);
+        }
+    } else {
+        steps.push('navigator.share: undefined');
+    }
+
+    if (isAndroidRuntime()) {
+        try {
+            const r = await shareViaAndroidIntent(probeText, probeName, { collectLog: steps });
+            info.result = r?.mode || 'shared-intent';
+            info.via = r?.via;
+            info.urlLen = r?.urlLen;
+            steps.push(`android intent finished: mode=${info.result} via=${info.via}`);
+        } catch (e) {
+            steps.push(`android intent threw: ${e && e.message ? e.message : e}`);
+            info.result = 'intent-failed';
+        }
+    } else if (isIosRuntime() && isTauriRuntime()) {
+        try {
+            const r = await shareViaIosNative(probeName, probeText);
+            info.result = r && r.completed === false ? 'cancelled-but-sheet-ok' : 'shared-ios';
+            steps.push(`ios_share_file: ${JSON.stringify(r)}`);
+        } catch (e) {
+            steps.push(`ios_share_file: ${e && e.message ? e.message : e}`);
+            info.result = 'ios-failed';
+        }
+    } else {
+        steps.push('not android/ios tauri — no intent probe');
+        info.result = 'unsupported';
+    }
+
+    console.log(LOG, 'diagnose', info);
+    return info;
+}
+
 
 let started = false;
 
