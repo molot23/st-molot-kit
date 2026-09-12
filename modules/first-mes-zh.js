@@ -5,19 +5,30 @@
  */
 
 const LOG = '[首条汉化]';
-const VERSION = '1.4.2';
+const VERSION = '1.5.0';
 const BTN_ID = 'st_mk_first_mes_zh';
 const ALT_BTN_ID = 'st_mk_alt_greetings_zh';
+const RESTORE_BTN_ID = 'st_mk_first_mes_zh_restore';
+const ALT_RESTORE_BTN_ID = 'st_mk_alt_greetings_zh_restore';
 const FAB_ID = 'st_mk_fmzh_fab';
 const STYLE_ID = 'st_mk_fmzh_style';
 
-const SYSTEM_PROMPT = `你是专业翻译。把用户给出的角色卡开场白（First Message / Alternate Greeting）译成通顺的简体中文。
+const SYSTEM_PROMPT = `你是机器翻译器，不是聊天助手，也不是分析师。
 
-硬性规则：
-1. 原样保留所有 {{宏}}（如 {{user}}、{{char}}），不要翻译、不要改写。
-2. 若出现占位符 ⟦§数字§⟧，必须原样保留。
-3. 保留 markdown / HTML / 引号 / 换行与叙事口吻。
-4. 只输出译文本身：不要前言、不要「译文：」、不要代码块。`;
+任务：把用户消息里的角色卡开场白（First Message / Alternate Greeting）译成通顺的简体中文。
+
+绝对禁止输出：
+- 任何思考过程、推理、分析、自评（包括：翻译思考记录、Paragraph、I realized、硬性规则复述、中英对照说明）
+- 前言、后记、「译文：」「如下：」、标题、清单、代码块围栏
+- <think> / <reasoning> 标签及其内容
+
+必须遵守：
+1. 所有 {{宏}}（如 {{user}}、{{char}}）原样保留，不翻译、不改写、不删。
+2. 占位符 ⟦§数字§⟧ 必须原样保留。
+3. 保留原文的 markdown / HTML / 引号 / 换行 / 叙事口吻与人称。
+4. 回复里只能出现最终中文译文正文。
+
+再次强调：不要解释你怎么译的。只输出译文。`;
 
 function getCtx() {
     try {
@@ -34,7 +45,7 @@ function ensureCss() {
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      #${BTN_ID}, #${ALT_BTN_ID} {
+      #${BTN_ID}, #${ALT_BTN_ID}, #${RESTORE_BTN_ID}, #${ALT_RESTORE_BTN_ID} {
         display: inline-flex !important;
         align-items: center !important;
         gap: 6px !important;
@@ -51,7 +62,7 @@ function ensureCss() {
         font-weight: 600 !important;
         white-space: nowrap !important;
       }
-      #${BTN_ID}.st-mk-fmzh-busy, #${ALT_BTN_ID}.st-mk-fmzh-busy, #${FAB_ID}.st-mk-fmzh-busy {
+      #${BTN_ID}.st-mk-fmzh-busy, #${ALT_BTN_ID}.st-mk-fmzh-busy, #${RESTORE_BTN_ID}.st-mk-fmzh-busy, #${ALT_RESTORE_BTN_ID}.st-mk-fmzh-busy, #${FAB_ID}.st-mk-fmzh-busy {
         opacity: .5 !important;
         pointer-events: none !important;
       }
@@ -83,6 +94,10 @@ function ensureCss() {
       }
       #${FAB_ID}.st-mk-fmzh-fab-show {
         display: inline-flex !important;
+      }
+      #${RESTORE_BTN_ID}, #${ALT_RESTORE_BTN_ID} {
+        border-color: rgba(96,165,250,.55) !important;
+        background: rgba(96,165,250,.16) !important;
       }
     `;
     document.head.appendChild(style);
@@ -117,9 +132,32 @@ function stripChrome(text) {
     let t = String(text ?? '').trim();
     t = t.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     t = t.replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '').trim();
+    t = t.replace(/<\/?think>/gi, '').trim();
+    t = t.replace(/^[\s\S]*?(?:最终译文|最终结果|译文正文)\s*[:：]\s*/i, '').trim();
     if (t.startsWith('```')) t = t.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```$/, '').trim();
-    t = t.replace(/^(译文|翻译结果|Translation)\s*[:：]\s*/i, '').trim();
+    t = t.replace(/^(译文|翻译结果|Translation|中文译文)\s*[:：]\s*/i, '').trim();
+    if (/^(翻译思考|Paragraph\s*\d|I realized|硬性规则)/i.test(t)) {
+        const parts = t.split(/\n{2,}/);
+        const kept = parts.filter((block) => !/^(翻译思考|Paragraph\s*\d|I realized|硬性规则|Here is|以下是)/i.test(block.trim()));
+        if (kept.length) t = kept.join('\n\n').trim();
+    }
     return t;
+}
+
+function looksLikeReasoningDump(text) {
+    const s = String(text ?? '');
+    if (!s.trim()) return true;
+    if (/翻译思考记录/.test(s)) return true;
+    if (/Paragraph\s*\d/i.test(s) && /I realized/i.test(s)) return true;
+    const hits = [
+        /翻译思考记录/,
+        /Paragraph\s*\d/i,
+        /\bI realized\b/i,
+        /硬性规则/,
+        /最终只输出/,
+        /翻译过程/,
+    ].filter((re) => re.test(s)).length;
+    return hits >= 2;
 }
 
 function looksMostlyChinese(text) {
@@ -135,14 +173,62 @@ async function translateWithAi(text) {
     if (ctx.onlineStatus === 'no_connection') throw new Error('API 未连接');
 
     const { shielded, macros } = shieldMacros(text);
-    const responseLength = Math.min(4000, Math.max(300, Math.ceil(shielded.length)));
-    const raw = await ctx.generateRaw({
-        prompt: shielded,
-        systemPrompt: SYSTEM_PROMPT,
-        responseLength,
-    });
-    if (raw == null || !String(raw).trim()) throw new Error('模型返回为空');
-    return restoreMacros(stripChrome(raw), macros);
+    const responseLength = Math.min(4000, Math.max(300, Math.ceil(shielded.length * 1.2)));
+    const userPrompt = '只输出简体中文译文正文，不要任何思考或说明。\n\n' + shielded;
+
+    async function once(extraSystem) {
+        const raw = await ctx.generateRaw({
+            prompt: userPrompt,
+            systemPrompt: extraSystem ? (SYSTEM_PROMPT + '\n\n' + extraSystem) : SYSTEM_PROMPT,
+            responseLength,
+        });
+        if (raw == null || !String(raw).trim()) throw new Error('模型返回为空');
+        return restoreMacros(stripChrome(raw), macros);
+    }
+
+    let out = await once('');
+    if (looksLikeReasoningDump(out)) {
+        console.warn(LOG, 'reasoning dump detected, retrying once');
+        out = await once('上一次你输出了思考过程。这次只准输出开场白译文，一个字的解释都不要。');
+    }
+    if (looksLikeReasoningDump(out)) {
+        throw new Error('模型仍在输出思考过程而非译文，请换模型或重试');
+    }
+    return out;
+}
+
+/** Last pre-translate snapshot for 复原 */
+let lastSnapshot = null;
+
+function takeSnapshot(bundle, altJobs) {
+    const alts = [];
+    if (altJobs && altJobs.length) {
+        altJobs.forEach((j) => { alts[j.index] = j.text; });
+    } else if (bundle && Array.isArray(bundle.alts)) {
+        bundle.alts.forEach((x, i) => { alts[i] = String(x ?? ''); });
+    }
+    lastSnapshot = {
+        first: String(bundle && bundle.first != null ? bundle.first : ''),
+        alts,
+        at: Date.now(),
+    };
+    return lastSnapshot;
+}
+
+export function restoreLastTranslate() {
+    if (!lastSnapshot) {
+        toastr?.info?.('没有可复原的汉化快照（先成功汉化一次）', '开场汉化');
+        return { ok: false, reason: 'empty' };
+    }
+    const bundle = resolveCharacterBundle();
+    if (lastSnapshot.first != null) bundle.writeFirst(lastSnapshot.first);
+    const maxIdx = Math.max(lastSnapshot.alts.length, (bundle.alts || []).length);
+    for (let i = 0; i < maxIdx; i++) {
+        if (lastSnapshot.alts[i] === undefined) continue;
+        bundle.writeAlt(i, lastSnapshot.alts[i]);
+    }
+    toastr?.success?.('已复原到汉化前内容（记得保存角色卡）', '开场汉化');
+    return { ok: true };
 }
 
 function setVal(el, value) {
@@ -295,6 +381,7 @@ export async function runBatchTranslate({ includeFirst = true, includeAlts = tru
         }
     }
 
+    takeSnapshot(bundle, altJobs);
     setBusy(true);
     toastr?.info?.(`正在用当前 AI 汉化（${tasks.length} 段）…`, '开场汉化');
     let done = 0;
@@ -323,7 +410,7 @@ export async function runBatchTranslate({ includeFirst = true, includeAlts = tru
 }
 
 function setBusy(on) {
-    [BTN_ID, ALT_BTN_ID, FAB_ID].forEach((id) => {
+    [BTN_ID, ALT_BTN_ID, RESTORE_BTN_ID, ALT_RESTORE_BTN_ID, FAB_ID].forEach((id) => {
         const el = document.getElementById(id);
         if (!el) return;
         el.classList.toggle('st-mk-fmzh-busy', on);
@@ -331,14 +418,14 @@ function setBusy(on) {
     });
 }
 
-function makeBtn(id, label, title, onClick) {
+function makeBtn(id, label, title, onClick, icon = 'fa-language') {
     const btn = document.createElement('div');
     btn.id = id;
     btn.className = 'menu_button menu_button_icon st-mk-fmzh-btn';
     btn.title = title;
     btn.setAttribute('role', 'button');
     btn.tabIndex = 0;
-    btn.innerHTML = `<i class="fa-solid fa-language"></i><span>${label}</span>`;
+    btn.innerHTML = `<i class="fa-solid ${icon}"></i><span>${label}</span>`;
     btn.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -378,9 +465,28 @@ function editorLikelyOpen() {
     });
 }
 
+
+function ensureRestoreBeside(anchorBtn, restoreId, scopeLabel) {
+    if (!anchorBtn || !anchorBtn.parentElement) return;
+    if (document.getElementById(restoreId)) return;
+    const rb = makeBtn(
+        restoreId,
+        '复原',
+        '复原' + scopeLabel + '到上次汉化前的内容',
+        () => restoreLastTranslate(),
+        'fa-rotate-left',
+    );
+    if (anchorBtn.nextSibling) anchorBtn.parentElement.insertBefore(rb, anchorBtn.nextSibling);
+    else anchorBtn.parentElement.appendChild(rb);
+}
+
 function injectMain() {
     ensureCss();
-    if (purgeInvisibleDupes(BTN_ID)) return { ok: true, where: 'existing' };
+    const existingMain = purgeInvisibleDupes(BTN_ID);
+    if (existingMain) {
+        ensureRestoreBeside(existingMain, RESTORE_BTN_ID, '开场');
+        return { ok: true, where: 'existing' };
+    }
 
     const ta = findFirstMesTextarea();
     const btn = makeBtn(
@@ -396,6 +502,7 @@ function injectMain() {
     if (alt?.parentElement) {
         alt.parentElement.insertBefore(btn, alt);
         if (isVisiblyLaidOut(btn) || btn.isConnected) {
+            ensureRestoreBeside(btn, RESTORE_BTN_ID, '开场');
             console.log(LOG, 'button injected before 其他开场');
             return { ok: true, where: 'beside-alt' };
         }
@@ -406,6 +513,7 @@ function injectMain() {
     if (fmDiv) {
         const header = fmDiv.querySelector('.title_restorable, .flex-container, div') || fmDiv;
         header.appendChild(btn);
+        ensureRestoreBeside(btn, RESTORE_BTN_ID, '开场');
         console.log(LOG, 'button injected into #first_message_div');
         return { ok: true, where: 'first_message_div' };
     }
@@ -419,6 +527,7 @@ function injectMain() {
             ta.parentElement.insertBefore(wrap, ta);
         }
         wrap.appendChild(btn);
+        ensureRestoreBeside(btn, RESTORE_BTN_ID, '开场');
         console.log(LOG, 'button injected above first-mes textarea');
         return { ok: true, where: 'above-ta' };
     }
@@ -429,9 +538,13 @@ function injectMain() {
 
 function injectAlt() {
     ensureCss();
-    if (purgeInvisibleDupes(ALT_BTN_ID)) return true;
+    const existingAlt = purgeInvisibleDupes(ALT_BTN_ID);
+    if (existingAlt) {
+        ensureRestoreBeside(existingAlt, ALT_RESTORE_BTN_ID, '候选开场');
+        return true;
+    }
     const title = document.querySelector(
-        '.popup:not(.displayNone) .alternate_grettings .title_restorable, .popup .alternate_grettings .title_restorable, dialog .alternate_grettings .title_restorable',
+        '.popup:not(.displayNone) .alternate_grettings .title_restorable, .popup .alternate_grettings .title_restorable, dialog .alternate_grettings .title_restorable, .popup .alternate_greetings .title_restorable',
     );
     if (!title) return false;
     const add = title.querySelector('.add_alternate_greeting');
@@ -443,6 +556,7 @@ function injectAlt() {
     );
     if (add) title.insertBefore(btn, add);
     else title.appendChild(btn);
+    ensureRestoreBeside(btn, ALT_RESTORE_BTN_ID, '候选开场');
     console.log(LOG, 'alt popup button injected');
     return true;
 }

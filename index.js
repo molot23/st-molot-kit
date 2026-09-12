@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.3.1
+ * Version: 1.3.2
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.3.1';
+const VERSION = '1.3.2';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -99,6 +99,7 @@ function injectKitPanel() {
                     <div class="st-mk-actions">
                         <button type="button" id="st_mk_run_share" class="menu_button st-mk-action-btn">复制当前聊天到剪贴板</button>
                         <button type="button" id="st_mk_run_fmzh" class="menu_button st-mk-action-btn">立即汉化当前角色开场</button>
+                        <button type="button" id="st_mk_restore_fmzh" class="menu_button st-mk-action-btn">复原上次开场汉化</button>
                         <button type="button" id="st_mk_force_fmzh" class="menu_button st-mk-action-btn">重新注入 / 诊断「汉化开场」</button>
                     </div>
                     <small class="st-mk-note">聊天导出：复制到剪贴板（不下载、不调系统分享）。开场汉化用「立即汉化」。</small>
@@ -145,6 +146,16 @@ function injectKitPanel() {
         } catch (e) {
             console.error(LOG, e);
             toastr.error(String(e && e.message ? e.message : e), '汉化失败');
+        }
+    });
+    $('#st_mk_restore_fmzh').on('click', async function () {
+        try {
+            const m = await import('./modules/first-mes-zh.js');
+            m.initFirstMesZh();
+            m.restoreLastTranslate();
+        } catch (e) {
+            console.error(LOG, e);
+            toastr.error(String(e && e.message ? e.message : e), '复原失败');
         }
     });
     $('#st_mk_force_fmzh').on('click', async function () {
