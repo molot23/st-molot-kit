@@ -1,8 +1,8 @@
 /**
  * st-molot-kit — 酒馆小工具合集
- * Bundles: API 自动重试 + 角色置顶与归档
+ * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 聊天分享 txt
  * Author: molot23
- * Version: 1.1.4
+ * Version: 1.2.0
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,13 +11,15 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.1.4';
+const VERSION = '1.2.0';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
     autoRetry: true,
     pinArchive: true,
     firstMesZh: true,
+    shareChat: true,
+    shareChatLimit: 100,
 });
 
 function ensureKitSettings() {
@@ -25,8 +27,15 @@ function ensureKitSettings() {
         extension_settings[KIT] = defaultKit();
     }
     const s = extension_settings[KIT];
-    for (const [k, v] of Object.entries(defaultKit())) {
-        if (typeof s[k] !== 'boolean') s[k] = v;
+    const d = defaultKit();
+    for (const [k, v] of Object.entries(d)) {
+        if (typeof v === 'boolean') {
+            if (typeof s[k] !== 'boolean') s[k] = v;
+        } else if (typeof v === 'number') {
+            if (typeof s[k] !== 'number' || !Number.isFinite(s[k])) s[k] = v;
+        } else if (s[k] === undefined) {
+            s[k] = v;
+        }
     }
     return s;
 }
@@ -54,7 +63,7 @@ function injectKitPanel() {
                 </div>
                 <div class="inline-drawer-content">
                     <p class="st-mk-note">
-                        合集模块：API 自动重试、角色置顶与归档、开场汉化（首条+候选，当前 AI）。下面可分别开关。
+                        合集模块：API 自动重试、角色置顶与归档、开场汉化、聊天分享 txt。下面可分别开关。
                         旧插件的设置会沿用（无需重配）。装好本合集后，请禁用并卸载那两个单独扩展，避免重复加载。
                         Megumin Suite 汉化版请继续单独安装。
                     </p>
@@ -76,10 +85,21 @@ function injectKitPanel() {
                             <span>开场汉化（首条+候选，当前 AI）</span>
                         </label>
                     </div>
+                    <div class="st-mk-row">
+                        <label class="checkbox_label">
+                            <input type="checkbox" id="st_mk_share_chat" ${s.shareChat ? 'checked' : ''}/>
+                            <span>聊天分享 txt（输入栏旁）</span>
+                        </label>
+                    </div>
+                    <div class="st-mk-row">
+                        <label for="st_mk_share_limit">分享条数（0=全部）</label>
+                        <input type="number" id="st_mk_share_limit" class="text_pole" min="0" max="9999" step="1" value="${Number(s.shareChatLimit) || 0}" style="max-width:6rem;"/>
+                    </div>
                     <small class="st-mk-note">开关变更后需刷新页面生效。合集 v${VERSION}</small>
                     <button type="button" id="st_mk_run_fmzh" class="menu_button" style="margin-top:8px;">立即汉化当前角色开场</button>
                     <button type="button" id="st_mk_force_fmzh" class="menu_button" style="margin-top:6px;">重新注入 / 诊断「汉化开场」</button>
-                    <small class="st-mk-note">「立即汉化」不依赖编辑页按钮：先打开要改的角色卡，再点它。右下角也会出现悬浮「汉化开场」。</small>
+                    <button type="button" id="st_mk_run_share" class="menu_button" style="margin-top:6px;">立即分享当前聊天</button>
+                    <small class="st-mk-note">「立即汉化」不依赖编辑页按钮。聊天分享：输入栏左侧分享图标；能调系统分享就弹面板，否则下载 txt。不含角色卡。</small>
                 </div>
             </div>
         </div>`;
@@ -99,6 +119,18 @@ function injectKitPanel() {
         ensureKitSettings().firstMesZh = $(this).is(':checked');
         saveKit();
         toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
+    });
+    $('#st_mk_share_chat').on('change', function () {
+        ensureKitSettings().shareChat = $(this).is(':checked');
+        saveKit();
+        toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
+    });
+    $('#st_mk_share_limit').on('change', function () {
+        let n = parseInt($(this).val(), 10);
+        if (!Number.isFinite(n) || n < 0) n = 100;
+        ensureKitSettings().shareChatLimit = n;
+        saveKit();
+        toastr.info(n === 0 ? '已保存：导出全部聊天。' : `已保存：最近 ${n} 条。`, '酒馆小工具');
     });
     $('#st_mk_run_fmzh').on('click', async function () {
         try {
@@ -137,6 +169,19 @@ function injectKitPanel() {
         } catch (e) {
             console.error(LOG, e);
             toastr.error(String(e && e.message ? e.message : e), '注入失败');
+        }
+    });
+    $('#st_mk_run_share').on('click', async function () {
+        try {
+            ensureKitSettings().shareChat = true;
+            $('#st_mk_share_chat').prop('checked', true);
+            saveKit();
+            const m = await import('./modules/share-chat-txt.js');
+            m.initShareChatTxt();
+            await m.shareCurrentChat();
+        } catch (e) {
+            console.error(LOG, e);
+            toastr.error(String(e && e.message ? e.message : e), '分享失败');
         }
     });
     return true;
@@ -179,10 +224,22 @@ jQuery(() => {
             console.log(LOG, '首条汉化已关闭');
         }
 
+        if (s.shareChat) {
+            import('./modules/share-chat-txt.js')
+                .then((m) => m.initShareChatTxt())
+                .catch((err) => {
+                    console.error(LOG, '聊天分享模块加载失败', err);
+                    toastr.error('聊天分享模块加载失败，请看控制台', '酒馆小工具');
+                });
+        } else {
+            console.log(LOG, '聊天分享已关闭');
+        }
+
         const parts = [];
         if (s.autoRetry) parts.push('自动重试');
         if (s.pinArchive) parts.push('置顶归档');
         if (s.firstMesZh) parts.push('首条汉化');
+        if (s.shareChat) parts.push('聊天分享');
         toastr.info(
             parts.length ? `已加载：${parts.join(' + ')}（v${VERSION}）` : `合集已加载，但模块均已关闭（v${VERSION}）`,
             '酒馆小工具',

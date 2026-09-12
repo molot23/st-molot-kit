@@ -202,3 +202,12 @@
 .st-mk-fmzh-btn {
     z-index: 5;
 }
+
+
+/* share chat button */
+#st_mk_share_chat {
+    cursor: pointer;
+}
+#st_mk_share_limit {
+    max-width: 6rem;
+}
