@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 聊天分享 txt
  * Author: molot23
- * Version: 1.2.1
+ * Version: 1.2.2
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.2.1';
+const VERSION = '1.2.2';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -88,7 +88,7 @@ function injectKitPanel() {
                     <div class="st-mk-row">
                         <label class="checkbox_label">
                             <input type="checkbox" id="st_mk_share_chat" ${s.shareChat ? 'checked' : ''}/>
-                            <span>聊天分享 txt（输入栏旁）</span>
+                            <span>聊天分享 txt（三条杠菜单 + 立即分享）</span>
                         </label>
                     </div>
                     <div class="st-mk-row">
@@ -96,10 +96,12 @@ function injectKitPanel() {
                         <input type="number" id="st_mk_share_limit" class="text_pole" min="0" max="9999" step="1" value="${Number(s.shareChatLimit) || 0}" style="max-width:6rem;"/>
                     </div>
                     <small class="st-mk-note">开关变更后需刷新页面生效。合集 v${VERSION}</small>
-                    <button type="button" id="st_mk_run_fmzh" class="menu_button" style="margin-top:8px;">立即汉化当前角色开场</button>
-                    <button type="button" id="st_mk_force_fmzh" class="menu_button" style="margin-top:6px;">重新注入 / 诊断「汉化开场」</button>
-                    <button type="button" id="st_mk_run_share" class="menu_button" style="margin-top:6px;">立即分享当前聊天</button>
-                    <small class="st-mk-note">「立即汉化」不依赖编辑页按钮。聊天分享：输入栏左侧分享图标；能调系统分享就弹面板，否则下载 txt。不含角色卡。</small>
+                    <div class="st-mk-actions">
+                        <button type="button" id="st_mk_run_share" class="menu_button st-mk-action-btn">立即分享当前聊天</button>
+                        <button type="button" id="st_mk_run_fmzh" class="menu_button st-mk-action-btn">立即汉化当前角色开场</button>
+                        <button type="button" id="st_mk_force_fmzh" class="menu_button st-mk-action-btn">重新注入 / 诊断「汉化开场」</button>
+                    </div>
+                    <small class="st-mk-note">聊天分享：先点上面「立即分享」最稳。三条杠菜单最上面也会有「分享聊天为 txt」（TauriTavern 可用）。不含角色卡。</small>
                 </div>
             </div>
         </div>`;

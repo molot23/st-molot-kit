@@ -211,3 +211,38 @@
 #st_mk_share_limit {
     max-width: 6rem;
 }
+
+
+/* kit action buttons — equal width on mobile forks */
+.st-molot-kit-settings .st-mk-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 10px;
+    width: 100%;
+}
+.st-molot-kit-settings .st-mk-action-btn,
+.st-molot-kit-settings #st_mk_run_fmzh,
+.st-molot-kit-settings #st_mk_force_fmzh,
+.st-molot-kit-settings #st_mk_run_share {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+    text-align: center !important;
+    white-space: normal !important;
+}
+
+/* options menu share row */
+#st_mk_share_chat_option,
+a.st-mk-share-option {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    padding: 10px 12px !important;
+    font-weight: 600 !important;
+    color: var(--SmartThemeQuoteColor, #f59e0b) !important;
+}

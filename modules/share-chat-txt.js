@@ -4,7 +4,7 @@
  */
 
 const LOG = '[聊天分享]';
-const VERSION = '1.0.1';
+const VERSION = '1.0.2';
 const BTN_ID = 'st_mk_share_chat';
 const OPT_ID = 'st_mk_share_chat_option';
 const STYLE_ID = 'st_mk_share_chat_style';
@@ -196,12 +196,35 @@ function closeOptionsMenu() {
 
 function injectOptionsMenuItem() {
     if (document.getElementById(OPT_ID)) return true;
-    const content = document.querySelector('#options .options-content, #options');
+
+    const candidates = [
+        document.querySelector('#options .options-content'),
+        document.querySelector('#options'),
+        document.querySelector('.options-content'),
+        document.querySelector('#option_select_chat')?.parentElement,
+        document.querySelector('#option_start_new_chat')?.parentElement,
+    ].filter(Boolean);
+
+    // TauriTavern / i18n: find menu that contains「管理聊天文件」or Manage chat
+    if (!candidates.length) {
+        for (const root of document.querySelectorAll('div, nav, aside, dialog')) {
+            const tx = (root.textContent || '');
+            if (tx.includes('管理聊天文件') || tx.includes('Manage chat files') || tx.includes('开始新聊天')) {
+                if (root.querySelector('a, .menu_button, [id^="option_"]')) {
+                    candidates.push(root);
+                    break;
+                }
+            }
+        }
+    }
+
+    const content = candidates[0];
     if (!content) return false;
 
     const a = document.createElement('a');
     a.id = OPT_ID;
     a.href = 'javascript:void(0)';
+    a.className = 'st-mk-share-option';
     a.innerHTML = '<i class="fa-lg fa-solid fa-share-nodes"></i><span>分享聊天为 txt</span>';
     a.title = '打包当前聊天为 txt，分享到 Grok 等（不含角色卡）';
     a.addEventListener('click', (e) => {
@@ -211,15 +234,12 @@ function injectOptionsMenuItem() {
         shareCurrentChat();
     });
 
-    // Prefer near 管理聊天文件 / select chat
-    const anchor =
-        content.querySelector('#option_select_chat') ||
-        content.querySelector('#option_start_new_chat') ||
-        content.querySelector('hr');
-    if (anchor) content.insertBefore(a, anchor);
+    // Put at TOP so it is hard to miss on mobile
+    const first = content.firstElementChild;
+    if (first) content.insertBefore(a, first);
     else content.appendChild(a);
 
-    console.log(LOG, 'share item injected into #options menu');
+    console.log(LOG, 'share item injected at top of options menu');
     return true;
 }
 
