@@ -4,7 +4,7 @@
  */
 
 const LOG = '[开场导入导出]';
-const VERSION = '1.4.3';
+const VERSION = '1.4.4';
 const STYLE_ID = 'st_mk_gio_style';
 
 const FIRST_EXPORT_ID = 'st_mk_gio_first_export';
@@ -17,6 +17,77 @@ const FIRST_MARK_END = '===END_FIRST_MES===';
 const ALT_MARK_START = '===ST_ALT_GREETINGS_v1===';
 const ALT_MARK_END = '===END_ALT_GREETINGS===';
 const ALT_SEP = (n) => `---ALT ${n}---`;
+const BACKUP_PREFIX = 'st_mk_gio_backup_v1:';
+const FIRST_RESTORE_ID = 'st_mk_gio_first_restore';
+const ALT_RESTORE_ID = 'st_mk_gio_alt_restore';
+
+
+
+function cardKeyFromBundleMeta(meta) {
+    if (meta?.avatar) return `avatar:${meta.avatar}`;
+    if (meta?.name) return `name:${meta.name}`;
+    if (meta?.chid != null && meta.chid !== '') return `chid:${meta.chid}`;
+    if (meta?.createMode) return 'create_new';
+    return 'unknown';
+}
+
+function readBackup(key) {
+    try {
+        const raw = localStorage.getItem(BACKUP_PREFIX + key);
+        if (!raw) return null;
+        const o = JSON.parse(raw);
+        if (!o || typeof o !== 'object') return null;
+        return o;
+    } catch (_) {
+        return null;
+    }
+}
+
+function writeBackup(key, payload) {
+    localStorage.setItem(BACKUP_PREFIX + key, JSON.stringify(payload));
+}
+
+/** First export only — never overwrite existing original backup for this card. */
+function maybeBackupOriginal(bundle) {
+    const key = bundle.key || 'unknown';
+    if (readBackup(key)) return { saved: false, key, reason: 'exists' };
+    const first = String(bundle.first ?? '');
+    let alts = Array.isArray(bundle.alts) ? bundle.alts.map(String) : [];
+    const dom = [];
+    document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text').forEach((el) => {
+        dom.push(String(el.value ?? ''));
+    });
+    if (dom.length) alts = dom;
+    const payload = {
+        key,
+        name: bundle.meta?.name || '',
+        avatar: bundle.meta?.avatar || '',
+        first,
+        alts,
+        at: Date.now(),
+    };
+    writeBackup(key, payload);
+    console.log(LOG, 'original backup saved', key);
+    return { saved: true, key };
+}
+
+export function restoreOriginalBackup() {
+    const bundle = resolveBundle();
+    const key = bundle.key || 'unknown';
+    const snap = readBackup(key);
+    if (!snap) {
+        toastr?.info?.('这张卡还没有导出备份（先点一次「导出开场」）', '开场导入导出');
+        return { ok: false, reason: 'empty' };
+    }
+    if (!confirm('还原到第一次导出时的原文？（主开场 + 候选都会覆盖，请确认后保存角色卡）')) {
+        return { ok: false, reason: 'cancelled' };
+    }
+    if (snap.first != null) bundle.writeFirst(String(snap.first));
+    if (Array.isArray(snap.alts)) bundle.writeAlts(snap.alts.map(String));
+    const when = snap.at ? new Date(snap.at).toLocaleString() : '';
+    toastr?.success?.(when ? `已还原首次导出备份（${when}）` : '已还原首次导出备份', '开场导入导出');
+    return { ok: true, key };
+}
 
 function getCtx() {
     try {
@@ -50,6 +121,10 @@ function ensureCss() {
       .st-mk-gio-btn.st-mk-gio-import {
         border-color: rgba(96,165,250,.55) !important;
         background: rgba(96,165,250,.16) !important;
+      }
+      .st-mk-gio-btn.st-mk-gio-restore {
+        border-color: rgba(251,191,36,.55) !important;
+        background: rgba(251,191,36,.16) !important;
       }
       .st-mk-gio-row-btns {
         display: inline-flex !important;
@@ -139,7 +214,10 @@ function resolveBundle() {
         if (!Array.isArray(globalThis.create_save.alternate_greetings)) {
             globalThis.create_save.alternate_greetings = [];
         }
+        const meta = { createMode: true, name: String(globalThis.create_save?.name || 'new'), avatar: '', chid: -1 };
         return {
+            key: cardKeyFromBundleMeta(meta),
+            meta,
             first: String(ta?.value ?? globalThis.create_save.first_mes ?? ''),
             alts: Array.isArray(globalThis.create_save.alternate_greetings)
                 ? globalThis.create_save.alternate_greetings.map(String)
@@ -167,7 +245,15 @@ function resolveBundle() {
         if (!ch.data) ch.data = {};
         if (!Array.isArray(ch.data.alternate_greetings)) ch.data.alternate_greetings = [];
         const firstFromData = ch.data.first_mes ?? ch.first_mes ?? '';
+        const meta = {
+            createMode: false,
+            name: String(ch.name || ch.data?.name || ''),
+            avatar: String(ch.avatar || ''),
+            chid,
+        };
         return {
+            key: cardKeyFromBundleMeta(meta),
+            meta,
             first: String(ta?.value ?? firstFromData ?? ''),
             alts: ch.data.alternate_greetings.map(String),
             writeFirst(v) {
@@ -185,7 +271,10 @@ function resolveBundle() {
         };
     }
 
+    const meta = { createMode: false, name: '', avatar: '', chid };
     return {
+        key: cardKeyFromBundleMeta(meta),
+        meta,
         first: String(ta?.value ?? ''),
         alts: [...document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text')].map((el) => String(el.value ?? '')),
         writeFirst(v) {
@@ -303,9 +392,13 @@ export async function exportFirstMes() {
         toastr?.info?.('主开场是空的', '开场导入导出');
         return { ok: false };
     }
+    const bak = maybeBackupOriginal(b);
     await copyText(packFirst(b.first));
-    toastr?.success?.('主开场已复制（纯文本，无标记）', '开场导入导出');
-    return { ok: true };
+    toastr?.success?.(
+        bak.saved ? '主开场已复制，并已备份原文（可点「还原」）' : '主开场已复制（纯文本）',
+        '开场导入导出',
+    );
+    return { ok: true, backup: bak };
 }
 
 export async function importFirstMes() {
@@ -332,9 +425,15 @@ export async function exportAltGreetings() {
         toastr?.info?.('没有候选开场可导出', '开场导入导出');
         return { ok: false };
     }
+    // Prefer live alts for backup snapshot
+    const snapBundle = { ...b, alts };
+    const bak = maybeBackupOriginal(snapBundle);
     await copyText(packAlts(alts));
-    toastr?.success?.(`已复制 ${alts.length} 条候选开场到剪贴板`, '开场导入导出');
-    return { ok: true, count: alts.length };
+    toastr?.success?.(
+        bak.saved ? `已复制 ${alts.length} 条候选，并备份原文` : `已复制 ${alts.length} 条候选开场`,
+        '开场导入导出',
+    );
+    return { ok: true, count: alts.length, backup: bak };
 }
 
 export async function importAltGreetings() {
@@ -349,15 +448,17 @@ export async function importAltGreetings() {
 }
 
 export async function exportOneAlt(index) {
+    const b = resolveBundle();
     const nodes = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text');
     const el = nodes[index];
-    const text = el ? String(el.value ?? '') : String(resolveBundle().alts[index] ?? '');
+    const text = el ? String(el.value ?? '') : String(b.alts[index] ?? '');
     if (!text.trim()) {
         toastr?.info?.('这条候选开场是空的', '开场导入导出');
         return { ok: false };
     }
+    maybeBackupOriginal(b);
     await copyText(packAlts([text]));
-    toastr?.success?.(`候选 #${index + 1} 已复制（单条格式）`, '开场导入导出');
+    toastr?.success?.(`候选 #${index + 1} 已复制`, '开场导入导出');
     return { ok: true };
 }
 
@@ -424,8 +525,9 @@ function ensureFirstBar() {
 
 function fillFirstBar(bar) {
     bar.innerHTML = '';
-    bar.appendChild(makeBtn(FIRST_EXPORT_ID, '导出开场', '复制主开场到剪贴板', () => exportFirstMes()));
+    bar.appendChild(makeBtn(FIRST_EXPORT_ID, '导出开场', '复制主开场到剪贴板（首次导出自动备份原文）', () => exportFirstMes()));
     bar.appendChild(makeBtn(FIRST_IMPORT_ID, '导入开场', '用剪贴板覆盖主开场', () => importFirstMes(), 'st-mk-gio-import'));
+    bar.appendChild(makeBtn(FIRST_RESTORE_ID, '还原', '还原到本卡第一次导出时的原文', () => restoreOriginalBackup(), 'st-mk-gio-restore'));
 }
 
 function placeNearFirstMes(bar) {
@@ -460,7 +562,7 @@ function injectFirstButtons() {
     ensureCss();
     purgeAiTranslateButtons();
     const bar = ensureFirstBar();
-    if (!document.getElementById(FIRST_EXPORT_ID) || !document.getElementById(FIRST_IMPORT_ID) || bar.childElementCount < 2) {
+    if (!document.getElementById(FIRST_EXPORT_ID) || !document.getElementById(FIRST_IMPORT_ID) || !document.getElementById(FIRST_RESTORE_ID) || bar.childElementCount < 3) {
         fillFirstBar(bar);
     }
     return !!placeNearFirstMes(bar);
@@ -491,15 +593,18 @@ function injectAltHeaderButtons() {
     if (!exp || !imp) {
         exp?.remove();
         imp?.remove();
-        exp = makeBtn(ALT_EXPORT_ID, '导出候选', '复制全部候选开场到剪贴板', () => exportAltGreetings());
+        exp = makeBtn(ALT_EXPORT_ID, '导出候选', '复制全部候选开场到剪贴板（首次导出自动备份）', () => exportAltGreetings());
         imp = makeBtn(ALT_IMPORT_ID, '导入候选', '用剪贴板覆盖全部候选开场', () => importAltGreetings(), 'st-mk-gio-import');
+        const rst = makeBtn(ALT_RESTORE_ID, '还原', '还原到本卡第一次导出时的原文', () => restoreOriginalBackup(), 'st-mk-gio-restore');
         const add = title.querySelector('.add_alternate_greeting');
         if (add) {
             title.insertBefore(exp, add);
             title.insertBefore(imp, add);
+            title.insertBefore(rst, add);
         } else {
             title.appendChild(exp);
             title.appendChild(imp);
+            title.appendChild(rst);
         }
     }
     document.getElementById('st_mk_alt_greetings_zh')?.remove();

@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场导入导出 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.4.3
+ * Version: 1.4.4
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.4.3';
+const VERSION = '1.4.4';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -102,11 +102,12 @@ function injectKitPanel() {
                         <button type="button" id="st_mk_gio_first_import" class="menu_button st-mk-action-btn">从剪贴板导入主开场</button>
                         <button type="button" id="st_mk_gio_alt_export" class="menu_button st-mk-action-btn">导出候选开场到剪贴板</button>
                         <button type="button" id="st_mk_gio_alt_import" class="menu_button st-mk-action-btn">从剪贴板导入候选开场</button>
+                        <button type="button" id="st_mk_gio_restore" class="menu_button st-mk-action-btn">还原首次导出原文</button>
                         <button type="button" id="st_mk_run_fmzh" class="menu_button st-mk-action-btn">立即 AI 汉化开场（可选）</button>
                         <button type="button" id="st_mk_restore_fmzh" class="menu_button st-mk-action-btn">复原上次 AI 汉化</button>
                         <button type="button" id="st_mk_force_fmzh" class="menu_button st-mk-action-btn">重新注入开场按钮</button>
                     </div>
-                    <small class="st-mk-note">推荐：导出开场 → 外面汉化 → 导入覆盖 → 保存角色卡。角色编辑页也有同款按钮。</small>
+                    <small class="st-mk-note">推荐：导出（首次会备份原文）→ 外面汉化 → 导入 → 保存。不满意可点「还原」。</small>
                 </div>
             </div>
         </div>`;
@@ -224,6 +225,10 @@ function injectKitPanel() {
     $('#st_mk_gio_alt_import').on('click', async function () {
         try { await withGreetingIo((m) => m.importAltGreetings()); }
         catch (e) { console.error(LOG, e); toastr.error(String(e && e.message ? e.message : e), '导入失败'); }
+    });
+    $('#st_mk_gio_restore').on('click', async function () {
+        try { await withGreetingIo((m) => m.restoreOriginalBackup()); }
+        catch (e) { console.error(LOG, e); toastr.error(String(e && e.message ? e.message : e), '还原失败'); }
     });
     return true;
 }
