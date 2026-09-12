@@ -1,11 +1,11 @@
 /**
  * Module: First Message + Alternate Greetings → Simplified Chinese via user's AI.
  * Zero static imports from ST core. Uses SillyTavern.getContext() at runtime.
- * v1.4.0 — visible-DOM aware inject, floating FAB, character-data translate path.
+ * v1.4.1 — no edit-page inject (clipboard IO takes over), floating FAB, character-data translate path.
  */
 
 const LOG = '[首条汉化]';
-const VERSION = '1.5.1';
+const VERSION = '1.4.1';
 const BTN_ID = 'st_mk_first_mes_zh';
 const ALT_BTN_ID = 'st_mk_alt_greetings_zh';
 const RESTORE_BTN_ID = 'st_mk_first_mes_zh_restore';
@@ -610,12 +610,15 @@ export function diagnoseInject() {
 }
 
 function tick() {
+    // Edit-page AI buttons disabled — use greeting-io 导出/导入 instead.
+    // Settings「立即 AI 汉化」still works via runBatchTranslate export.
     try {
-        injectMain();
-        injectAlt();
-        injectFab();
+        [BTN_ID, ALT_BTN_ID, RESTORE_BTN_ID, ALT_RESTORE_BTN_ID, FAB_ID].forEach((id) => {
+            document.getElementById(id)?.remove();
+        });
+        document.getElementById('st_mk_fmzh_wrap')?.remove();
     } catch (e) {
-        console.warn(LOG, 'tick', e);
+        console.warn(LOG, 'tick cleanup', e);
     }
 }
 
@@ -638,13 +641,7 @@ export function initFirstMesZh() {
         }, true);
         setInterval(tick, 1000);
     }
-    const d = diagnoseInject();
-    console.log(LOG, `module loaded v${VERSION}`, d);
-    // Quiet on boot — no yellow warning spam on TauriTavern. Use settings「立即汉化」/ diagnose.
-    console.log(LOG, 'boot diagnose (silent)', {
-        buttonVisible: d.buttonVisible,
-        fabVisible: d.fabVisible,
-        textareaFound: d.textareaFound,
-    });
-    return d;
+    tick();
+    console.log(LOG, `module loaded v${VERSION} (settings-only AI; edit UI off)`);
+    return { ok: true, editUi: false };
 }

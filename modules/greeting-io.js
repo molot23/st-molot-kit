@@ -4,7 +4,7 @@
  */
 
 const LOG = '[开场导入导出]';
-const VERSION = '1.0.0';
+const VERSION = '1.4.1';
 const STYLE_ID = 'st_mk_gio_style';
 
 const FIRST_EXPORT_ID = 'st_mk_gio_first_export';
@@ -60,6 +60,27 @@ function ensureCss() {
       .st-mk-gio-row-btns .st-mk-gio-btn {
         padding: 4px 8px !important;
         font-size: 0.85em !important;
+      }
+      #st_mk_gio_first_bar {
+        display: inline-flex !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
+        gap: 6px !important;
+        margin: 6px 0 !important;
+        max-width: 100% !important;
+        z-index: 60 !important;
+      }
+      .st-mk-gio-ta-wrap {
+        position: relative !important;
+      }
+      #st_mk_gio_first_bar.st-mk-gio-overlay {
+        position: absolute !important;
+        right: 6px !important;
+        bottom: 6px !important;
+        margin: 0 !important;
+        background: rgba(20,20,24,.88) !important;
+        padding: 4px !important;
+        border-radius: 10px !important;
       }
     `;
     document.head.appendChild(style);
@@ -337,95 +358,125 @@ export async function importOneAlt(index) {
     alts[index] = text;
     b.writeAlts(alts);
     toastr?.success?.(`已导入候选 #${index + 1}（请保存角色卡）`, '开场导入导出');
-    return { ok: true };
-}
-
-function makeBtn(id, label, title, onClick, extraClass = '') {
-    const btn = document.createElement('div');
-    if (id) btn.id = id;
-    btn.className = `menu_button menu_button_icon st-mk-gio-btn ${extraClass}`.trim();
-    btn.title = title;
-    btn.setAttribute('role', 'button');
-    btn.tabIndex = 0;
-    btn.innerHTML = `<span>${label}</span>`;
-    btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        Promise.resolve(onClick()).catch((err) => {
-            console.error(LOG, err);
-            toastr?.error?.(String(err?.message || err), '开场导入导出');
-        });
+    refunction purgeAiTranslateButtons() {
+    ['st_mk_first_mes_zh', 'st_mk_alt_greetings_zh', 'st_mk_first_mes_zh_restore', 'st_mk_alt_greetings_zh_restore', 'st_mk_fmzh_fab'].forEach((id) => {
+        document.getElementById(id)?.remove();
     });
-    return btn;
+    document.getElementById('st_mk_fmzh_wrap')?.remove();
 }
 
-function placeNearFirstMes(nodes) {
-    const wrapId = 'st_mk_gio_first_bar';
-    let bar = document.getElementById(wrapId);
+function ensureFirstBar() {
+    let bar = document.getElementById('st_mk_gio_first_bar');
     if (!bar) {
         bar = document.createElement('div');
-        bar.id = wrapId;
+        bar.id = 'st_mk_gio_first_bar';
         bar.className = 'st-mk-gio-row-btns';
-    } else {
-        bar.innerHTML = '';
     }
-    nodes.forEach((n) => bar.appendChild(n));
+    return bar;
+}
 
-    const alt = document.querySelector('#first_message_div .open_alternate_greetings, .open_alternate_greetings');
+function fillFirstBar(bar) {
+    bar.innerHTML = '';
+    bar.appendChild(makeBtn(FIRST_EXPORT_ID, '导出开场', '复制主开场到剪贴板', () => exportFirstMes()));
+    bar.appendChild(makeBtn(FIRST_IMPORT_ID, '导入开场', '用剪贴板覆盖主开场', () => importFirstMes(), 'st-mk-gio-import'));
+}
+
+function placeNearFirstMes(bar) {
+    // A) beside「其他开场」— same path that worked for 汉化开场
+    const alts = [...document.querySelectorAll('.open_alternate_greetings, [class*="open_alternate"]')];
+    const alt = alts.find(isVisiblyLaidOut) || alts[0];
     if (alt?.parentElement) {
-        alt.parentElement.insertBefore(bar, alt);
-        return true;
+        if (bar.parentElement !== alt.parentElement || bar.nextSibling !== alt) {
+            alt.parentElement.insertBefore(bar, alt);
+        }
+        if (bar.isConnected) return 'beside-alt';
     }
+    // B) #first_message_div header
+    const fmDiv = document.querySelector('#first_message_div');
+    if (fmDiv) {
+        const header = fmDiv.querySelector('.title_restorable, .flex-container') || fmDiv;
+        if (!header.contains(bar)) header.appendChild(bar);
+        if (bar.isConnected) return 'first_message_div';
+    }
+    // C) above textarea + absolute overlay fallback on parent
     const ta = findFirstMesTextarea();
     if (ta?.parentElement) {
-        ta.parentElement.insertBefore(bar, ta);
-        return true;
+        const parent = ta.parentElement;
+        parent.classList.add('st-mk-gio-ta-wrap');
+        if (!parent.contains(bar)) parent.insertBefore(bar, ta);
+        bar.classList.add('st-mk-gio-overlay');
+        if (bar.isConnected) return 'above-ta';
     }
-    const fm = document.querySelector('#first_message_div');
-    if (fm) {
-        fm.prepend(bar);
-        return true;
-    }
-    return false;
+    return null;
 }
 
 function injectFirstButtons() {
     ensureCss();
-    if (document.getElementById(FIRST_EXPORT_ID) && document.getElementById(FIRST_IMPORT_ID)) return true;
-    const exp = makeBtn(FIRST_EXPORT_ID, '导出开场', '复制主开场到剪贴板', () => exportFirstMes());
-    const imp = makeBtn(FIRST_IMPORT_ID, '导入开场', '用剪贴板覆盖主开场', () => importFirstMes(), 'st-mk-gio-import');
-    return placeNearFirstMes([exp, imp]);
+    purgeAiTranslateButtons();
+    const bar = ensureFirstBar();
+    // Always refresh labels/handlers in case of stale DOM
+    if (!document.getElementById(FIRST_EXPORT_ID) || !document.getElementById(FIRST_IMPORT_ID) || bar.childElementCount < 2) {
+        fillFirstBar(bar);
+    }
+    const where = placeNearFirstMes(bar);
+    return !!where;
 }
 
 function injectAltHeaderButtons() {
     ensureCss();
-    if (document.getElementById(ALT_EXPORT_ID) && document.getElementById(ALT_IMPORT_ID)) {
-        injectPerAltButtons();
-        return true;
-    }
     const title = document.querySelector(
         '.popup:not(.displayNone) .alternate_grettings .title_restorable, .popup .alternate_grettings .title_restorable, dialog .alternate_grettings .title_restorable, .popup .alternate_greetings .title_restorable',
     );
     if (!title) return false;
-    const exp = makeBtn(ALT_EXPORT_ID, '导出候选', '复制全部候选开场到剪贴板', () => exportAltGreetings());
-    const imp = makeBtn(ALT_IMPORT_ID, '导入候选', '用剪贴板覆盖全部候选开场', () => importAltGreetings(), 'st-mk-gio-import');
-    const add = title.querySelector('.add_alternate_greeting');
-    if (add) {
-        title.insertBefore(exp, add);
-        title.insertBefore(imp, add);
-    } else {
-        title.appendChild(exp);
-        title.appendChild(imp);
+    let exp = document.getElementById(ALT_EXPORT_ID);
+    let imp = document.getElementById(ALT_IMPORT_ID);
+    if (!exp || !imp) {
+        exp?.remove();
+        imp?.remove();
+        exp = makeBtn(ALT_EXPORT_ID, '导出候选', '复制全部候选开场到剪贴板', () => exportAltGreetings());
+        imp = makeBtn(ALT_IMPORT_ID, '导入候选', '用剪贴板覆盖全部候选开场', () => importAltGreetings(), 'st-mk-gio-import');
+        const add = title.querySelector('.add_alternate_greeting');
+        if (add) {
+            title.insertBefore(exp, add);
+            title.insertBefore(imp, add);
+        } else {
+            title.appendChild(exp);
+            title.appendChild(imp);
+        }
     }
+    // Remove AI「全部汉化」in alt popup if any
+    document.getElementById('st_mk_alt_greetings_zh')?.remove();
+    document.getElementById('st_mk_alt_greetings_zh_restore')?.remove();
     injectPerAltButtons();
     return true;
 }
 
 function injectPerAltButtons() {
-    const blocks = document.querySelectorAll('.alternate_greetings_list .alternate_greeting, .alternate_greetings_list > div');
     const texts = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text');
     texts.forEach((ta, index) => {
         const parent = ta.closest('.alternate_greeting') || ta.parentElement;
+        if (!parent) return;
+        if (parent.querySelector(`.st-mk-gio-alt-${index}`)) return;
+        const row = document.createElement('div');
+        row.className = `st-mk-gio-row-btns st-mk-gio-alt-${index}`;
+        row.appendChild(makeBtn(null, '导出', `复制候选 #${index + 1}`, () => exportOneAlt(index)));
+        row.appendChild(makeBtn(null, '导入', `覆盖候选 #${index + 1}`, () => importOneAlt(index), 'st-mk-gio-import'));
+        ta.parentElement?.insertBefore(row, ta);
+    });
+}
+
+function tick() {
+    try {
+        injectFirstButtons();
+        injectAltHeaderButtons();
+    } catch (e) {
+        console.warn(LOG, e);
+    }
+}
+
+let started = false;
+
+ntElement;
         if (!parent) return;
         if (parent.querySelector(`.st-mk-gio-alt-${index}`)) return;
         const row = document.createElement('div');
