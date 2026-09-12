@@ -4,7 +4,7 @@
  */
 
 const LOG = '[开场导入导出]';
-const VERSION = '1.4.1';
+const VERSION = '1.4.2';
 const STYLE_ID = 'st_mk_gio_style';
 
 const FIRST_EXPORT_ID = 'st_mk_gio_first_export';
@@ -100,6 +100,7 @@ function findFirstMesTextarea() {
         '#firstmessage_textarea',
         'textarea[name="first_mes"]',
         '#first_message_div textarea',
+        'textarea[data-for="first_mes"]',
     ];
     const found = [];
     for (const sel of selectors) {
@@ -140,82 +141,85 @@ function resolveBundle() {
         }
         return {
             first: String(ta?.value ?? globalThis.create_save.first_mes ?? ''),
-            alts: globalThis.create_save.alternate_greetings.map(String),
-            ta,
+            alts: Array.isArray(globalThis.create_save.alternate_greetings)
+                ? globalThis.create_save.alternate_greetings.map(String)
+                : [],
             writeFirst(v) {
-                globalThis.create_save.first_mes = v;
-                setVal(ta, v);
+                if (ta) setVal(ta, v);
+                if (globalThis.create_save) globalThis.create_save.first_mes = v;
             },
             writeAlts(arr) {
+                if (!Array.isArray(globalThis.create_save.alternate_greetings)) {
+                    globalThis.create_save.alternate_greetings = [];
+                }
                 globalThis.create_save.alternate_greetings = arr.map(String);
-                syncAltDom(arr);
+                arr.forEach((v, i) => {
+                    const el = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text')[i];
+                    if (el) setVal(el, v);
+                });
             },
         };
     }
 
-    if (chid != null && ctx?.characters?.[chid]) {
-        const ch = ctx.characters[chid];
+    const characters = ctx?.characters || globalThis.characters;
+    const ch = characters && chid != null ? characters[chid] : null;
+    if (ch) {
         if (!ch.data) ch.data = {};
         if (!Array.isArray(ch.data.alternate_greetings)) ch.data.alternate_greetings = [];
         const firstFromData = ch.data.first_mes ?? ch.first_mes ?? '';
         return {
             first: String(ta?.value ?? firstFromData ?? ''),
             alts: ch.data.alternate_greetings.map(String),
-            ta,
             writeFirst(v) {
+                if (ta) setVal(ta, v);
                 ch.first_mes = v;
                 ch.data.first_mes = v;
-                setVal(ta, v);
             },
             writeAlts(arr) {
                 ch.data.alternate_greetings = arr.map(String);
-                syncAltDom(arr);
+                arr.forEach((v, i) => {
+                    const el = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text')[i];
+                    if (el) setVal(el, v);
+                });
             },
         };
     }
 
-    const domAlts = [];
-    document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text').forEach((el) => {
-        domAlts.push(String(el.value ?? ''));
-    });
     return {
         first: String(ta?.value ?? ''),
-        alts: domAlts,
-        ta,
-        writeFirst(v) { setVal(ta, v); },
-        writeAlts(arr) { syncAltDom(arr); },
+        alts: [...document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text')].map((el) => String(el.value ?? '')),
+        writeFirst(v) {
+            if (ta) setVal(ta, v);
+        },
+        writeAlts(arr) {
+            arr.forEach((v, i) => {
+                const el = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text')[i];
+                if (el) setVal(el, v);
+            });
+        },
     };
 }
 
-function syncAltDom(arr) {
-    const nodes = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text');
-    nodes.forEach((el, i) => {
-        if (i < arr.length) setVal(el, arr[i]);
-    });
-}
-
 async function copyText(text) {
+    const s = String(text ?? '');
     if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
+        await navigator.clipboard.writeText(s);
         return;
     }
     const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.setAttribute('readonly', '');
-    ta.style.position = 'fixed';
-    ta.style.left = '-9999px';
+    ta.value = s;
+    ta.style.cssText = 'position:fixed;left:-9999px;top:0';
     document.body.appendChild(ta);
     ta.select();
-    const ok = document.execCommand('copy');
+    document.execCommand('copy');
     ta.remove();
-    if (!ok) throw new Error('clipboard copy failed');
 }
 
 async function readClipboard() {
     if (navigator.clipboard?.readText) {
         return await navigator.clipboard.readText();
     }
-    throw new Error('当前环境无法读取剪贴板，请确认已授权剪贴板权限');
+    throw new Error('当前环境无法读取剪贴板，请检查权限');
 }
 
 function packFirst(text) {
@@ -226,7 +230,6 @@ function unpackFirst(raw) {
     const s = String(raw ?? '');
     const m = s.match(new RegExp(`${FIRST_MARK_START}\\r?\\n([\\s\\S]*?)\\r?\\n${FIRST_MARK_END}`));
     if (m) return m[1];
-    // plain paste: whole clipboard is first_mes
     if (s.includes(ALT_MARK_START)) {
         throw new Error('剪贴板像是「候选开场」导出，请用候选区的导入按钮');
     }
@@ -247,7 +250,6 @@ function packAlts(alts) {
 function unpackAlts(raw) {
     const s = String(raw ?? '');
     if (!s.includes(ALT_MARK_START)) {
-        // single block → one alt only if user pastes plain text
         if (s.includes(FIRST_MARK_START)) {
             throw new Error('剪贴板像是「主开场」导出，请用主开场的导入按钮');
         }
@@ -257,7 +259,6 @@ function unpackAlts(raw) {
     }
     const body = s.split(ALT_MARK_START)[1]?.split(ALT_MARK_END)[0] ?? '';
     const parts = body.split(/---ALT\s+(\d+)---/);
-    // parts: [preamble, num, text, num, text, ...]
     const map = new Map();
     for (let i = 1; i + 1 < parts.length; i += 2) {
         const idx = Number(parts[i]) - 1;
@@ -297,7 +298,6 @@ export async function importFirstMes() {
 
 export async function exportAltGreetings() {
     const b = resolveBundle();
-    // Prefer live DOM if popup open
     const dom = [];
     document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text').forEach((el) => {
         dom.push(String(el.value ?? ''));
@@ -358,7 +358,29 @@ export async function importOneAlt(index) {
     alts[index] = text;
     b.writeAlts(alts);
     toastr?.success?.(`已导入候选 #${index + 1}（请保存角色卡）`, '开场导入导出');
-    refunction purgeAiTranslateButtons() {
+    return { ok: true };
+}
+
+function makeBtn(id, label, title, onClick, extraClass = '') {
+    const btn = document.createElement('div');
+    if (id) btn.id = id;
+    btn.className = `menu_button menu_button_icon st-mk-gio-btn ${extraClass}`.trim();
+    btn.title = title;
+    btn.setAttribute('role', 'button');
+    btn.tabIndex = 0;
+    btn.innerHTML = `<span>${label}</span>`;
+    btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        Promise.resolve(onClick()).catch((err) => {
+            console.error(LOG, err);
+            toastr?.error?.(String(err?.message || err), '开场导入导出');
+        });
+    });
+    return btn;
+}
+
+function purgeAiTranslateButtons() {
     ['st_mk_first_mes_zh', 'st_mk_alt_greetings_zh', 'st_mk_first_mes_zh_restore', 'st_mk_alt_greetings_zh_restore', 'st_mk_fmzh_fab'].forEach((id) => {
         document.getElementById(id)?.remove();
     });
@@ -382,23 +404,22 @@ function fillFirstBar(bar) {
 }
 
 function placeNearFirstMes(bar) {
-    // A) beside「其他开场」— same path that worked for 汉化开场
     const alts = [...document.querySelectorAll('.open_alternate_greetings, [class*="open_alternate"]')];
     const alt = alts.find(isVisiblyLaidOut) || alts[0];
     if (alt?.parentElement) {
         if (bar.parentElement !== alt.parentElement || bar.nextSibling !== alt) {
             alt.parentElement.insertBefore(bar, alt);
         }
+        bar.classList.remove('st-mk-gio-overlay');
         if (bar.isConnected) return 'beside-alt';
     }
-    // B) #first_message_div header
     const fmDiv = document.querySelector('#first_message_div');
     if (fmDiv) {
         const header = fmDiv.querySelector('.title_restorable, .flex-container') || fmDiv;
         if (!header.contains(bar)) header.appendChild(bar);
+        bar.classList.remove('st-mk-gio-overlay');
         if (bar.isConnected) return 'first_message_div';
     }
-    // C) above textarea + absolute overlay fallback on parent
     const ta = findFirstMesTextarea();
     if (ta?.parentElement) {
         const parent = ta.parentElement;
@@ -414,12 +435,24 @@ function injectFirstButtons() {
     ensureCss();
     purgeAiTranslateButtons();
     const bar = ensureFirstBar();
-    // Always refresh labels/handlers in case of stale DOM
     if (!document.getElementById(FIRST_EXPORT_ID) || !document.getElementById(FIRST_IMPORT_ID) || bar.childElementCount < 2) {
         fillFirstBar(bar);
     }
-    const where = placeNearFirstMes(bar);
-    return !!where;
+    return !!placeNearFirstMes(bar);
+}
+
+function injectPerAltButtons() {
+    const texts = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text');
+    texts.forEach((ta, index) => {
+        const parent = ta.closest('.alternate_greeting') || ta.parentElement;
+        if (!parent) return;
+        if (parent.querySelector(`.st-mk-gio-alt-${index}`)) return;
+        const row = document.createElement('div');
+        row.className = `st-mk-gio-row-btns st-mk-gio-alt-${index}`;
+        row.appendChild(makeBtn(null, '导出', `复制候选 #${index + 1}`, () => exportOneAlt(index)));
+        row.appendChild(makeBtn(null, '导入', `覆盖候选 #${index + 1}`, () => importOneAlt(index), 'st-mk-gio-import'));
+        ta.parentElement?.insertBefore(row, ta);
+    });
 }
 
 function injectAltHeaderButtons() {
@@ -444,47 +477,10 @@ function injectAltHeaderButtons() {
             title.appendChild(imp);
         }
     }
-    // Remove AI「全部汉化」in alt popup if any
     document.getElementById('st_mk_alt_greetings_zh')?.remove();
     document.getElementById('st_mk_alt_greetings_zh_restore')?.remove();
     injectPerAltButtons();
     return true;
-}
-
-function injectPerAltButtons() {
-    const texts = document.querySelectorAll('.alternate_greetings_list .alternate_greeting_text');
-    texts.forEach((ta, index) => {
-        const parent = ta.closest('.alternate_greeting') || ta.parentElement;
-        if (!parent) return;
-        if (parent.querySelector(`.st-mk-gio-alt-${index}`)) return;
-        const row = document.createElement('div');
-        row.className = `st-mk-gio-row-btns st-mk-gio-alt-${index}`;
-        row.appendChild(makeBtn(null, '导出', `复制候选 #${index + 1}`, () => exportOneAlt(index)));
-        row.appendChild(makeBtn(null, '导入', `覆盖候选 #${index + 1}`, () => importOneAlt(index), 'st-mk-gio-import'));
-        ta.parentElement?.insertBefore(row, ta);
-    });
-}
-
-function tick() {
-    try {
-        injectFirstButtons();
-        injectAltHeaderButtons();
-    } catch (e) {
-        console.warn(LOG, e);
-    }
-}
-
-let started = false;
-
-ntElement;
-        if (!parent) return;
-        if (parent.querySelector(`.st-mk-gio-alt-${index}`)) return;
-        const row = document.createElement('div');
-        row.className = `st-mk-gio-row-btns st-mk-gio-alt-${index}`;
-        row.appendChild(makeBtn(null, '导出', `复制候选 #${index + 1}`, () => exportOneAlt(index)));
-        row.appendChild(makeBtn(null, '导入', `覆盖候选 #${index + 1}`, () => importOneAlt(index), 'st-mk-gio-import'));
-        ta.parentElement?.insertBefore(row, ta);
-    });
 }
 
 function tick() {
@@ -508,7 +504,7 @@ export function initGreetingIo() {
         document.addEventListener('click', (e) => {
             const t = e.target;
             if (!(t instanceof Element)) return;
-            if (t.closest('.open_alternate_greetings, .character_select, #rm_button_selected')) {
+            if (t.closest('.open_alternate_greetings, .character_select, #rm_button_selected, #rm_button_create, #rm_button_characters')) {
                 setTimeout(tick, 100);
                 setTimeout(tick, 400);
                 setTimeout(tick, 1000);
@@ -517,5 +513,4 @@ export function initGreetingIo() {
         setInterval(tick, 1500);
     }
     console.log(LOG, `module loaded v${VERSION}`);
-    // quiet boot
 }

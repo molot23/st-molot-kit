@@ -5,7 +5,7 @@
  */
 
 const LOG = '[首条汉化]';
-const VERSION = '1.4.1';
+const VERSION = '1.4.2';
 const BTN_ID = 'st_mk_first_mes_zh';
 const ALT_BTN_ID = 'st_mk_alt_greetings_zh';
 const RESTORE_BTN_ID = 'st_mk_first_mes_zh_restore';
