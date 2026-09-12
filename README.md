@@ -31,4 +31,4 @@ https://github.com/molot23/st-molot-kit
 
 ## 版本
 
-1.2.4
+1.2.5

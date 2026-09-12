@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 聊天分享 txt
  * Author: molot23
- * Version: 1.2.4
+ * Version: 1.2.5
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.2.4';
+const VERSION = '1.2.5';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -166,7 +166,7 @@ function injectKitPanel() {
             if (d.buttonVisible || d.fabVisible) {
                 toastr.success(lines.join(' · '), '开场汉化诊断');
             } else {
-                toastr.warning(lines.join(' · ') + ' —— 请用「立即汉化当前角色开场」', '开场汉化诊断');
+                toastr.info(lines.join(' · ') + ' —— 可用「立即汉化当前角色开场」', '开场汉化诊断');
             }
         } catch (e) {
             console.error(LOG, e);
