@@ -4,7 +4,7 @@
  */
 
 const LOG = '[聊天分享]';
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const BTN_ID = 'st_mk_share_chat';
 const OPT_ID = 'st_mk_share_chat_option';
 const STYLE_ID = 'st_mk_share_chat_style';
@@ -179,6 +179,11 @@ function buildAndroidSendIntentUrl(text, title) {
  * Open Android system share sheet via intent:// (Tauri opener or <a click>).
  * No file is written to Downloads / local storage.
  */
+/**
+ * Android Intent share — SAFE mode for Tauri WebView.
+ * Never uses location.href / window.open / <a href=intent> (those can crash the app).
+ * Only try Tauri opener invoke; if unavailable, return failure without navigating.
+ */
 async function shareViaAndroidIntent(text, title, { collectLog = null } = {}) {
     const url = buildAndroidSendIntentUrl(text, title);
     const invoke = getTauriInvoke();
@@ -191,57 +196,27 @@ async function shareViaAndroidIntent(text, title, { collectLog = null } = {}) {
         if (Array.isArray(collectLog)) collectLog.push(`FAIL: ${msg}`);
     };
 
-    if (invoke) {
-        const attempts = [
-            ['plugin:opener|open_url', { url }],
-            ['plugin:opener|open_url', { url, with: null }],
-            ['plugin:opener|open', { path: url }],
-            ['open_url', { url }],
-        ];
-        for (const [cmd, args] of attempts) {
-            try {
-                await invoke(cmd, args);
-                log(`intent ok via invoke ${cmd}`);
-                return { mode: 'shared-intent', via: cmd, urlLen: url.length };
-            } catch (e) {
-                fail(`invoke ${cmd}: ${e && e.message ? e.message : e}`);
-            }
+    if (!invoke) {
+        fail('no tauri invoke (skip intent navigation to avoid crash)');
+        return { mode: 'intent-unavailable', via: null, urlLen: url.length };
+    }
+
+    const attempts = [
+        ['plugin:opener|open_url', { url }],
+        ['plugin:opener|open', { path: url }],
+    ];
+    for (const [cmd, args] of attempts) {
+        try {
+            await invoke(cmd, args);
+            log(`intent ok via invoke ${cmd}`);
+            return { mode: 'shared-intent', via: cmd, urlLen: url.length };
+        } catch (e) {
+            fail(`invoke ${cmd}: ${e && e.message ? e.message : e}`);
         }
-    } else {
-        fail('no tauri invoke');
     }
 
-    try {
-        const a = document.createElement('a');
-        a.href = url;
-        a.rel = 'noopener';
-        a.target = '_blank';
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        log('intent fired via <a click>');
-        return { mode: 'shared-intent-anchor', via: 'a.click', urlLen: url.length };
-    } catch (e) {
-        fail(`a.click: ${e && e.message ? e.message : e}`);
-    }
-
-    try {
-        const opened = window.open(url, '_blank');
-        log(`intent via window.open -> ${opened ? 'obj' : 'null'}`);
-        return { mode: 'shared-intent-open', via: 'window.open', urlLen: url.length };
-    } catch (e) {
-        fail(`window.open: ${e && e.message ? e.message : e}`);
-    }
-
-    try {
-        window.location.href = url;
-        log('intent via location.href');
-        return { mode: 'shared-intent-location', via: 'location.href', urlLen: url.length };
-    } catch (e) {
-        fail(`location.href: ${e && e.message ? e.message : e}`);
-        throw e;
-    }
+    fail('all safe invoke attempts failed; NOT using location/a/open (crash risk)');
+    return { mode: 'intent-failed-safe', via: null, urlLen: url.length };
 }
 
 /** iOS TauriTavern native share sheet; temp cache only, cleaned after. */
@@ -317,31 +292,16 @@ async function shareOnly(filename, text) {
         if (encodedLen <= 35000) {
             try {
                 const r = await shareViaAndroidIntent(text, filename);
-                return r?.mode || 'shared-intent';
+                if (r?.mode && String(r.mode).startsWith('shared-intent')) {
+                    return r.mode;
+                }
+                console.warn(LOG, 'android intent not shared', r);
             } catch (e) {
                 console.warn(LOG, 'android intent full text failed', e);
             }
         }
-        // Long chat: open sheet with pointer; full body already goes to clipboard (not a file)
-        try {
-            await copyToClipboard(text);
-            const stub = [
-                '【酒馆聊天分享】',
-                `文件名: ${filename}`,
-                '完整正文已复制到剪贴板（未保存任何文件）。',
-                '请在分享目标（如 Grok）里粘贴。',
-                '',
-                '—— 预览 ——',
-                text.slice(0, 1200),
-                text.length > 1200 ? '\n…(后续在剪贴板)' : '',
-            ].join('\n');
-            const r = await shareViaAndroidIntent(stub, filename);
-            return r?.mode === 'shared-intent' || String(r?.mode || '').startsWith('shared-intent')
-                ? 'shared-intent-clipboard'
-                : (r?.mode || 'shared-intent-clipboard');
-        } catch (e) {
-            console.warn(LOG, 'android intent stub failed', e);
-        }
+        // Do NOT fall back to crashy navigation. Clipboard only if sheet unavailable.
+        console.warn(LOG, 'android share sheet unavailable via safe path');
     }
 
     // 3) iOS Tauri native share sheet
@@ -531,10 +491,13 @@ export async function diagnoseShare() {
     if (isAndroidRuntime()) {
         try {
             const r = await shareViaAndroidIntent(probeText, probeName, { collectLog: steps });
-            info.result = r?.mode || 'shared-intent';
+            info.result = r?.mode || 'intent-failed-safe';
             info.via = r?.via;
             info.urlLen = r?.urlLen;
-            steps.push(`android intent finished: mode=${info.result} via=${info.via}`);
+            steps.push(`android intent finished: mode=${info.result} via=${info.via || 'none'}`);
+            if (String(info.result).startsWith('intent-')) {
+                steps.push('结论: 安全通路无法打开分享面板；需要 TauriTavern 提供安卓原生分享 API（勿再用 intent 跳转，会闪退）');
+            }
         } catch (e) {
             steps.push(`android intent threw: ${e && e.message ? e.message : e}`);
             info.result = 'intent-failed';
