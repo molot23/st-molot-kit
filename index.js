@@ -1,8 +1,8 @@
 /**
  * st-molot-kit — 酒馆小工具合集
- * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 聊天分享 txt
+ * Bundles: API 自动重试 + 角色置顶与归档 + 开场汉化 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.3.0
+ * Version: 1.3.1
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -92,7 +92,7 @@ function injectKitPanel() {
                         </label>
                     </div>
                     <div class="st-mk-row">
-                        <label for="st_mk_share_limit">分享条数（0=全部）</label>
+                        <label for="st_mk_share_limit">复制条数（0=全部）</label>
                         <input type="number" id="st_mk_share_limit" class="text_pole" min="0" max="9999" step="1" value="${Number(s.shareChatLimit) || 0}" style="max-width:6rem;"/>
                     </div>
                     <small class="st-mk-note">开关变更后需刷新页面生效。合集 v${VERSION}</small>
@@ -230,11 +230,11 @@ jQuery(() => {
             import('./modules/share-chat-txt.js')
                 .then((m) => m.initShareChatTxt())
                 .catch((err) => {
-                    console.error(LOG, '聊天分享模块加载失败', err);
-                    toastr.error('聊天分享模块加载失败，请看控制台', '酒馆小工具');
+                    console.error(LOG, '聊天复制模块加载失败', err);
+                    toastr.error('聊天复制模块加载失败，请看控制台', '酒馆小工具');
                 });
         } else {
-            console.log(LOG, '聊天分享已关闭');
+            console.log(LOG, '聊天复制已关闭');
         }
 
         const parts = [];

@@ -3,7 +3,7 @@
  * No download, no Android Intent / Web Share probes.
  */
 
-const LOG = '[聊天分享]';
+const LOG = '[聊天复制]';
 const VERSION = '2.0.0';
 const BTN_ID = 'st_mk_share_chat';
 const OPT_ID = 'st_mk_share_chat_option';
@@ -141,7 +141,7 @@ async function copyToClipboard(text) {
 export async function shareCurrentChat() {
     const pack = collectMessages();
     if (!pack.exported.length) {
-        toastr?.info?.('当前没有可导出的聊天内容', '聊天分享');
+        toastr?.info?.('当前没有可导出的聊天内容', '聊天复制');
         return { ok: false, reason: 'empty' };
     }
     const text = buildTxt(pack);
@@ -149,7 +149,7 @@ export async function shareCurrentChat() {
     if (btn) btn.classList.add('st-mk-share-busy');
     try {
         await copyToClipboard(text);
-        toastr?.success?.(`已复制 ${pack.exported.length} 条到剪贴板。可粘贴到 Grok。`, '聊天分享');
+        toastr?.success?.(`已复制 ${pack.exported.length} 条到剪贴板。可粘贴到 Grok。`, '聊天复制');
         return { ok: true, mode: 'clipboard', count: pack.exported.length };
     } catch (e) {
         console.error(LOG, e);
