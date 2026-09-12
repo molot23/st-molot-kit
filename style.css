@@ -177,3 +177,20 @@
     opacity: 0.8;
     line-height: 1.4;
 }
+
+
+/* first-message ZH button */
+.st-mk-fmzh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+.st-mk-fmzh-btn.st-mk-fmzh-busy {
+    opacity: 0.55;
+    pointer-events: none;
+}
+#first_message_div {
+    flex-wrap: wrap;
+    gap: 6px;
+}

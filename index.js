@@ -2,21 +2,23 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档
  * Author: molot23
- * Version: 1.0.0
+ * Version: 1.1.0
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
 import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
+import { initFirstMesZh } from './modules/first-mes-zh.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
     autoRetry: true,
     pinArchive: true,
+    firstMesZh: true,
 });
 
 function ensureKitSettings() {
@@ -53,7 +55,7 @@ function injectKitPanel() {
                 </div>
                 <div class="inline-drawer-content">
                     <p class="st-mk-note">
-                        把「API 自动重试」和「角色置顶与归档」合成一个扩展。下面可分别开关模块。
+                        合集模块：API 自动重试、角色置顶与归档、第一条消息一键汉化。下面可分别开关。
                         旧插件的设置会沿用（无需重配）。装好本合集后，请禁用并卸载那两个单独扩展，避免重复加载。
                         Megumin Suite 汉化版请继续单独安装。
                     </p>
@@ -69,6 +71,12 @@ function injectKitPanel() {
                             <span>角色置顶与归档</span>
                         </label>
                     </div>
+                    <div class="st-mk-row">
+                        <label class="checkbox_label">
+                            <input type="checkbox" id="st_mk_first_mes_zh" ${s.firstMesZh ? 'checked' : ''}/>
+                            <span>第一条消息一键汉化</span>
+                        </label>
+                    </div>
                     <small class="st-mk-note">开关变更后需刷新页面生效。合集 v${VERSION}</small>
                 </div>
             </div>
@@ -82,6 +90,11 @@ function injectKitPanel() {
     });
     $('#st_mk_pin_archive').on('change', function () {
         ensureKitSettings().pinArchive = $(this).is(':checked');
+        saveKit();
+        toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
+    });
+    $('#st_mk_first_mes_zh').on('change', function () {
+        ensureKitSettings().firstMesZh = $(this).is(':checked');
         saveKit();
         toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
     });
@@ -114,9 +127,16 @@ jQuery(() => {
             console.log(LOG, '角色置顶与归档已关闭');
         }
 
+        if (s.firstMesZh) {
+            initFirstMesZh();
+        } else {
+            console.log(LOG, '首条汉化已关闭');
+        }
+
         const parts = [];
         if (s.autoRetry) parts.push('自动重试');
         if (s.pinArchive) parts.push('置顶归档');
+        if (s.firstMesZh) parts.push('首条汉化');
         toastr.info(
             parts.length ? `已加载：${parts.join(' + ')}（v${VERSION}）` : `合集已加载，但模块均已关闭（v${VERSION}）`,
             '酒馆小工具',
