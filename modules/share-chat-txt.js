@@ -4,8 +4,9 @@
  */
 
 const LOG = '[聊天分享]';
-const VERSION = '1.0.0';
+const VERSION = '1.0.1';
 const BTN_ID = 'st_mk_share_chat';
+const OPT_ID = 'st_mk_share_chat_option';
 const STYLE_ID = 'st_mk_share_chat_style';
 const KIT = 'st-molot-kit';
 
@@ -188,7 +189,41 @@ export async function shareCurrentChat() {
     }
 }
 
-function injectButton() {
+function closeOptionsMenu() {
+    const opts = document.getElementById('options');
+    if (opts) opts.style.display = 'none';
+}
+
+function injectOptionsMenuItem() {
+    if (document.getElementById(OPT_ID)) return true;
+    const content = document.querySelector('#options .options-content, #options');
+    if (!content) return false;
+
+    const a = document.createElement('a');
+    a.id = OPT_ID;
+    a.href = 'javascript:void(0)';
+    a.innerHTML = '<i class="fa-lg fa-solid fa-share-nodes"></i><span>分享聊天为 txt</span>';
+    a.title = '打包当前聊天为 txt，分享到 Grok 等（不含角色卡）';
+    a.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeOptionsMenu();
+        shareCurrentChat();
+    });
+
+    // Prefer near 管理聊天文件 / select chat
+    const anchor =
+        content.querySelector('#option_select_chat') ||
+        content.querySelector('#option_start_new_chat') ||
+        content.querySelector('hr');
+    if (anchor) content.insertBefore(a, anchor);
+    else content.appendChild(a);
+
+    console.log(LOG, 'share item injected into #options menu');
+    return true;
+}
+
+function injectLeftButton() {
     ensureCss();
     if (document.getElementById(BTN_ID)) return true;
     const left = document.querySelector('#leftSendForm');
@@ -205,19 +240,11 @@ function injectButton() {
         e.stopPropagation();
         shareCurrentChat();
     });
-    btn.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            shareCurrentChat();
-        }
-    });
 
     const options = left.querySelector('#options_button');
     if (options && options.nextSibling) left.insertBefore(btn, options.nextSibling);
     else if (options) left.appendChild(btn);
     else left.prepend(btn);
-
-    console.log(LOG, 'share button injected into #leftSendForm');
     return true;
 }
 
@@ -226,7 +253,12 @@ let started = false;
 export function initShareChatTxt() {
     ensureCss();
     const tryInject = () => {
-        try { injectButton(); } catch (e) { console.warn(LOG, e); }
+        try {
+            injectOptionsMenuItem();
+            injectLeftButton();
+        } catch (e) {
+            console.warn(LOG, e);
+        }
     };
     tryInject();
     if (!started) {
