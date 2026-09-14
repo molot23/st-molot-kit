@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场导入导出 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.5.1
+ * Version: 1.5.2
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.5.1';
+const VERSION = '1.5.2';
 const LOG = '[酒馆小工具]';
 const AAR = 'st-api-auto-retry';
 const CPA = 'st-char-pin-archive';
@@ -105,23 +105,52 @@ function injectKitPanel() {
                     <div class="st-mk-section">
                         <div class="st-mk-section-title">功能开关</div>
                         <div class="st-mk-toggle-list">
-                            <label class="st-mk-toggle" for="st_mk_tog_retry">
+                            <label class="checkbox_label st-mk-toggle" for="st_mk_tog_retry">
                                 <input type="checkbox" id="st_mk_tog_retry" ${s.autoRetry ? 'checked' : ''}/>
                                 <span>API 自动重试</span>
                             </label>
-                            <label class="st-mk-toggle" for="st_mk_tog_pin">
+                            <label class="checkbox_label st-mk-toggle" for="st_mk_tog_pin">
                                 <input type="checkbox" id="st_mk_tog_pin" ${s.pinArchive ? 'checked' : ''}/>
                                 <span>角色置顶与归档</span>
                             </label>
-                            <label class="st-mk-toggle" for="st_mk_tog_greeting">
+                            <label class="checkbox_label st-mk-toggle" for="st_mk_tog_greeting">
                                 <input type="checkbox" id="st_mk_tog_greeting" ${s.firstMesZh ? 'checked' : ''}/>
                                 <span>开场导入导出</span>
                             </label>
-                            <label class="st-mk-toggle" for="st_mk_tog_share">
+                            <label class="checkbox_label st-mk-toggle" for="st_mk_tog_share">
                                 <input type="checkbox" id="st_mk_tog_share" ${s.shareChat ? 'checked' : ''}/>
                                 <span>复制聊天到剪贴板</span>
                             </label>
                         </div>
+                    </div>
+
+                    <div class="st-mk-section">
+                        <div class="st-mk-section-title">自动重试</div>
+                        <div class="st-mk-row">
+                            <label for="st_mk_aar_max">最大重试次数</label>
+                            <input type="number" id="st_mk_aar_max" class="text_pole st-mk-num" min="0" max="20" step="1" value="${Number(aar.maxRetries) || 3}"/>
+                        </div>
+                        <div class="st-mk-row">
+                            <label for="st_mk_aar_delay">重试间隔（毫秒）</label>
+                            <input type="number" id="st_mk_aar_delay" class="text_pole st-mk-num" min="0" max="120000" step="100" value="${Number(aar.baseDelayMs) || 2000}"/>
+                        </div>
+                        <label class="checkbox_label st-mk-check" for="st_mk_aar_backoff">
+                            <input type="checkbox" id="st_mk_aar_backoff" ${aar.exponentialBackoff !== false ? 'checked' : ''}/>
+                            <span>指数退避（间隔翻倍）</span>
+                        </label>
+                        <label class="checkbox_label st-mk-check" for="st_mk_aar_empty">
+                            <input type="checkbox" id="st_mk_aar_empty" ${aar.retryEmptyReply !== false ? 'checked' : ''}/>
+                            <span>空回复也重试</span>
+                        </label>
+                        <label class="checkbox_label st-mk-check" for="st_mk_aar_confirm">
+                            <input type="checkbox" id="st_mk_aar_confirm" ${aar.confirmBeforeRetry ? 'checked' : ''}/>
+                            <span>重试前手动确认</span>
+                        </label>
+                        <label class="checkbox_label st-mk-check" for="st_mk_aar_scroll">
+                            <input type="checkbox" id="st_mk_aar_scroll" ${aar.scrollToNewMessageStart !== false ? 'checked' : ''}/>
+                            <span>成功后跳到新消息开头</span>
+                        </label>
+                        <p class="st-mk-hint">跳开头只滚聊天区；若底栏被顶上去，关掉此项并刷新即可复原。</p>
                     </div>
 
                     <div class="st-mk-section">
@@ -145,36 +174,20 @@ function injectKitPanel() {
                     </div>
 
                     <div class="st-mk-section">
-                        <label class="checkbox_label st-mk-check">
+                        <label class="checkbox_label st-mk-check" for="st_mk_show_advanced">
                             <input type="checkbox" id="st_mk_show_advanced" ${s.showAdvanced ? 'checked' : ''}/>
                             <span>显示高级选项</span>
                         </label>
                         <div id="st_mk_advanced" class="st-mk-advanced" style="${s.showAdvanced ? '' : 'display:none;'}">
                             <div class="st-mk-subsection">开场</div>
                             <button type="button" id="st_mk_gio_restore" class="menu_button st-mk-action-btn">还原首次导出原文</button>
-                            <div class="st-mk-subsection">自动重试</div>
-                            <label class="checkbox_label st-mk-check">
-                                <input type="checkbox" id="st_mk_aar_confirm" ${aar.confirmBeforeRetry ? 'checked' : ''}/>
-                                <span>重试前手动确认</span>
-                            </label>
-                            <label class="checkbox_label st-mk-check">
-                                <input type="checkbox" id="st_mk_aar_empty" ${aar.retryEmptyReply !== false ? 'checked' : ''}/>
-                                <span>空回复也重试</span>
-                            </label>
-                            <label class="checkbox_label st-mk-check">
-                                <input type="checkbox" id="st_mk_aar_scroll" ${aar.scrollToNewMessageStart !== false ? 'checked' : ''}/>
-                                <span>成功后跳到新消息开头</span>
-                            </label>
-                            <div class="st-mk-row">
-                                <label for="st_mk_aar_max">最大重试次数</label>
-                                <input type="number" id="st_mk_aar_max" class="text_pole st-mk-num" min="0" max="20" step="1" value="${Number(aar.maxRetries) || 3}"/>
-                            </div>
                             <div class="st-mk-subsection">置顶归档</div>
                             <div class="st-mk-btn-grid">
                                 <button type="button" id="st_mk_cpa_clear_pins" class="menu_button st-mk-action-btn">清空全部置顶</button>
                                 <button type="button" id="st_mk_cpa_clear_arch" class="menu_button st-mk-action-btn">清空全部归档</button>
                             </div>
                         </div>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -234,6 +247,16 @@ function injectKitPanel() {
         let n = parseInt($(this).val(), 10);
         if (!Number.isFinite(n) || n < 0) n = 3;
         ensureAarSettings().maxRetries = n;
+        saveSettingsDebounced();
+    });
+    $('#st_mk_aar_delay').on('change', function () {
+        let n = parseInt($(this).val(), 10);
+        if (!Number.isFinite(n) || n < 0) n = 2000;
+        ensureAarSettings().baseDelayMs = n;
+        saveSettingsDebounced();
+    });
+    $('#st_mk_aar_backoff').on('change', function () {
+        ensureAarSettings().exponentialBackoff = $(this).is(':checked');
         saveSettingsDebounced();
     });
 

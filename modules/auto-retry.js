@@ -118,20 +118,21 @@ const MODULE_NAME = 'st-api-auto-retry';
             }
             if (!el || el.classList.contains(PLACEHOLDER_DOM_CLASS)) return false;
 
-            // Prefer precise scrollTop so message first line sits at chat viewport top
+            // Only touch #chat.scrollTop. Never scrollIntoView — on SillyDroid / WebView
+            // that scrolls the outer page and leaves the input bar floating with a gap.
             const chatRect = chatEl.getBoundingClientRect();
             const elRect = el.getBoundingClientRect();
             const nextTop = chatEl.scrollTop + (elRect.top - chatRect.top);
             chatEl.scrollTop = Math.max(0, nextTop);
 
-            // Fallback / reinforce with scrollIntoView(block:'start') inside scrollable #chat
+            // Undo any incidental document scroll from other ST hooks
             try {
-                el.scrollIntoView({ behavior: 'auto', block: 'start', inline: 'nearest' });
-            } catch (_) {
-                try {
-                    el.scrollIntoView(true);
-                } catch (__) { /* ignore */ }
-            }
+                if (window.scrollY || document.documentElement.scrollTop || document.body.scrollTop) {
+                    window.scrollTo(0, 0);
+                    document.documentElement.scrollTop = 0;
+                    document.body.scrollTop = 0;
+                }
+            } catch (_) { /* ignore */ }
             return true;
         } catch (e) {
             console.warn(`${LOG_PREFIX} scrollMessageStartIntoChatView failed`, e);
