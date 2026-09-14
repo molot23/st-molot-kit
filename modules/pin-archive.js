@@ -17,6 +17,7 @@ import {
 const MODULE = 'st-char-pin-archive';
 const LOG = '[角色置顶归档]';
 const VERSION = '1.0.2';
+let skipSettingsPanel = false;
 
 const defaultSettings = () => ({
     /** @type {string[]} avatar filenames */
@@ -364,17 +365,18 @@ function bindEvents() {
     });
     eventSource.on(event_types.APP_READY, () => {
         injectToolbar();
-        addSettingsPanel();
+        if (!skipSettingsPanel) addSettingsPanel();
         printCharactersDebounced();
     });
 }
 
-export function initPinArchive() {
+export function initPinArchive(options = {}) {
     try {
+        skipSettingsPanel = !!(options && options.skipSettingsPanel);
         ensureSettings();
         patchEntitiesFilter();
         bindEvents();
-        addSettingsPanel();
+        if (!skipSettingsPanel) addSettingsPanel();
         injectToolbar();
         console.log(LOG, `module loaded v${VERSION}`);
     } catch (e) {

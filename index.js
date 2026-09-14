@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场导入导出 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.4.8
+ * Version: 1.5.0
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,15 +11,18 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.4.8';
+const VERSION = '1.5.0';
 const LOG = '[酒馆小工具]';
+const AAR = 'st-api-auto-retry';
+const CPA = 'st-char-pin-archive';
 
 const defaultKit = () => ({
     autoRetry: true,
     pinArchive: true,
-    firstMesZh: true,
+    firstMesZh: true, // greeting import/export
     shareChat: true,
     shareChatLimit: 100,
+    showAdvanced: false,
 });
 
 function ensureKitSettings() {
@@ -45,8 +48,41 @@ function saveKit() {
     saveSettingsDebounced();
 }
 
+function ensureAarSettings() {
+    if (!extension_settings[AAR] || typeof extension_settings[AAR] !== 'object') {
+        extension_settings[AAR] = {
+            enabled: true,
+            confirmBeforeRetry: false,
+            retryEmptyReply: true,
+            scrollToNewMessageStart: true,
+            maxRetries: 3,
+            baseDelayMs: 2000,
+            exponentialBackoff: true,
+            retryStatusCodes: [408, 429, 500, 502, 503, 504, 524],
+        };
+    }
+    return extension_settings[AAR];
+}
+
+function ensureCpaSettings() {
+    if (!extension_settings[CPA] || typeof extension_settings[CPA] !== 'object') {
+        extension_settings[CPA] = { pinned: [], archived: [], showArchivedOnly: false };
+    }
+    const s = extension_settings[CPA];
+    if (!Array.isArray(s.pinned)) s.pinned = [];
+    if (!Array.isArray(s.archived)) s.archived = [];
+    return s;
+}
+
+function hideLegacyModulePanels() {
+    $('#st_api_auto_retry_settings, #st_cpa_settings').hide();
+}
+
 function injectKitPanel() {
-    if ($('#st_molot_kit_settings').length) return true;
+    if ($('#st_molot_kit_settings').length) {
+        hideLegacyModulePanels();
+        return true;
+    }
 
     const $target = $('#extensions_settings2').length
         ? $('#extensions_settings2')
@@ -54,6 +90,7 @@ function injectKitPanel() {
     if (!$target) return false;
 
     const s = ensureKitSettings();
+    const aar = ensureAarSettings();
     const html = `
         <div id="st_molot_kit_settings" class="st-molot-kit-settings">
             <div class="inline-drawer">
@@ -62,76 +99,108 @@ function injectKitPanel() {
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
-                    <p class="st-mk-note">
-                        合集模块：API 自动重试、角色置顶与归档、开场导入导出（剪贴板）、复制聊天、开场 AI 汉化（可选）。下面可分别开关。
-                        旧插件的设置会沿用（无需重配）。装好本合集后，请禁用并卸载那两个单独扩展，避免重复加载。
-                        Megumin Suite 汉化版请继续单独安装。
-                    </p>
-                    <div class="st-mk-row">
-                        <label class="checkbox_label">
+                    <p class="st-mk-lead">自动重试 · 置顶归档 · 开场导入导出 · 复制聊天 <span class="st-mk-ver">v${VERSION}</span></p>
+                    <p class="st-mk-note">Megumin 请单独安装。开关变更后需刷新页面生效。</p>
+
+                    <div class="st-mk-section">
+                        <div class="st-mk-section-title">功能开关</div>
+                        <label class="checkbox_label st-mk-check">
                             <input type="checkbox" id="st_mk_auto_retry" ${s.autoRetry ? 'checked' : ''}/>
                             <span>API 自动重试</span>
                         </label>
-                    </div>
-                    <div class="st-mk-row">
-                        <label class="checkbox_label">
+                        <label class="checkbox_label st-mk-check">
                             <input type="checkbox" id="st_mk_pin_archive" ${s.pinArchive ? 'checked' : ''}/>
                             <span>角色置顶与归档</span>
                         </label>
-                    </div>
-                    <div class="st-mk-row">
-                        <label class="checkbox_label">
+                        <label class="checkbox_label st-mk-check">
                             <input type="checkbox" id="st_mk_first_mes_zh" ${s.firstMesZh ? 'checked' : ''}/>
-                            <span>开场工具（导入导出 + 可选 AI 汉化）</span>
+                            <span>开场导入导出</span>
                         </label>
-                    </div>
-                    <div class="st-mk-row">
-                        <label class="checkbox_label">
+                        <label class="checkbox_label st-mk-check">
                             <input type="checkbox" id="st_mk_share_chat" ${s.shareChat ? 'checked' : ''}/>
                             <span>复制聊天到剪贴板</span>
                         </label>
                     </div>
-                    <div class="st-mk-row">
-                        <label for="st_mk_share_limit">复制条数（0=全部）</label>
-                        <input type="number" id="st_mk_share_limit" class="text_pole" min="0" max="9999" step="1" value="${Number(s.shareChatLimit) || 0}" style="max-width:6rem;"/>
-                    </div>
-                    <small class="st-mk-note">开关变更后需刷新页面生效。合集 v${VERSION}</small>
-                    <div class="st-mk-actions">
+
+                    <div class="st-mk-section">
+                        <div class="st-mk-section-title">复制聊天</div>
+                        <div class="st-mk-row">
+                            <label for="st_mk_share_limit">条数（0=全部）</label>
+                            <input type="number" id="st_mk_share_limit" class="text_pole st-mk-num" min="0" max="9999" step="1" value="${Number(s.shareChatLimit) || 0}"/>
+                        </div>
                         <button type="button" id="st_mk_run_share" class="menu_button st-mk-action-btn">复制当前聊天到剪贴板</button>
-                        <button type="button" id="st_mk_gio_first_export" class="menu_button st-mk-action-btn">导出主开场到剪贴板</button>
-                        <button type="button" id="st_mk_gio_first_import" class="menu_button st-mk-action-btn">从剪贴板导入主开场</button>
-                        <button type="button" id="st_mk_gio_alt_export" class="menu_button st-mk-action-btn">导出候选开场到剪贴板</button>
-                        <button type="button" id="st_mk_gio_alt_import" class="menu_button st-mk-action-btn">从剪贴板导入候选开场</button>
-                        <button type="button" id="st_mk_gio_restore" class="menu_button st-mk-action-btn">还原首次导出原文</button>
-                        <button type="button" id="st_mk_run_fmzh" class="menu_button st-mk-action-btn">立即 AI 汉化开场（可选）</button>
-                        <button type="button" id="st_mk_restore_fmzh" class="menu_button st-mk-action-btn">复原上次 AI 汉化</button>
-                        <button type="button" id="st_mk_force_fmzh" class="menu_button st-mk-action-btn">重新注入开场按钮</button>
                     </div>
-                    <small class="st-mk-note">推荐：导出（首次会备份原文）→ 外面汉化 → 导入 → 保存。不满意可点「还原」。</small>
+
+                    <div class="st-mk-section">
+                        <div class="st-mk-section-title">开场导入导出</div>
+                        <p class="st-mk-hint">导出 → 外面汉化 → 导入 → 保存角色卡。角色编辑页也有同款按钮。</p>
+                        <div class="st-mk-btn-grid">
+                            <button type="button" id="st_mk_gio_first_export" class="menu_button st-mk-action-btn">导出主开场</button>
+                            <button type="button" id="st_mk_gio_first_import" class="menu_button st-mk-action-btn">导入主开场</button>
+                            <button type="button" id="st_mk_gio_alt_export" class="menu_button st-mk-action-btn">导出候选</button>
+                            <button type="button" id="st_mk_gio_alt_import" class="menu_button st-mk-action-btn">导入候选</button>
+                        </div>
+                    </div>
+
+                    <div class="st-mk-section">
+                        <label class="checkbox_label st-mk-check">
+                            <input type="checkbox" id="st_mk_show_advanced" ${s.showAdvanced ? 'checked' : ''}/>
+                            <span>显示高级选项</span>
+                        </label>
+                        <div id="st_mk_advanced" class="st-mk-advanced" style="${s.showAdvanced ? '' : 'display:none;'}">
+                            <div class="st-mk-subsection">开场</div>
+                            <button type="button" id="st_mk_gio_restore" class="menu_button st-mk-action-btn">还原首次导出原文</button>
+                            <div class="st-mk-subsection">自动重试</div>
+                            <label class="checkbox_label st-mk-check">
+                                <input type="checkbox" id="st_mk_aar_confirm" ${aar.confirmBeforeRetry ? 'checked' : ''}/>
+                                <span>重试前手动确认</span>
+                            </label>
+                            <label class="checkbox_label st-mk-check">
+                                <input type="checkbox" id="st_mk_aar_empty" ${aar.retryEmptyReply !== false ? 'checked' : ''}/>
+                                <span>空回复也重试</span>
+                            </label>
+                            <label class="checkbox_label st-mk-check">
+                                <input type="checkbox" id="st_mk_aar_scroll" ${aar.scrollToNewMessageStart !== false ? 'checked' : ''}/>
+                                <span>成功后跳到新消息开头</span>
+                            </label>
+                            <div class="st-mk-row">
+                                <label for="st_mk_aar_max">最大重试次数</label>
+                                <input type="number" id="st_mk_aar_max" class="text_pole st-mk-num" min="0" max="20" step="1" value="${Number(aar.maxRetries) || 3}"/>
+                            </div>
+                            <div class="st-mk-subsection">置顶归档</div>
+                            <div class="st-mk-btn-grid">
+                                <button type="button" id="st_mk_cpa_clear_pins" class="menu_button st-mk-action-btn">清空全部置顶</button>
+                                <button type="button" id="st_mk_cpa_clear_arch" class="menu_button st-mk-action-btn">清空全部归档</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>`;
     $target.prepend(html);
+    hideLegacyModulePanels();
+
+    const refreshNote = () => toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
 
     $('#st_mk_auto_retry').on('change', function () {
         ensureKitSettings().autoRetry = $(this).is(':checked');
         saveKit();
-        toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
+        refreshNote();
     });
     $('#st_mk_pin_archive').on('change', function () {
         ensureKitSettings().pinArchive = $(this).is(':checked');
         saveKit();
-        toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
+        refreshNote();
     });
     $('#st_mk_first_mes_zh').on('change', function () {
         ensureKitSettings().firstMesZh = $(this).is(':checked');
         saveKit();
-        toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
+        refreshNote();
     });
     $('#st_mk_share_chat').on('change', function () {
         ensureKitSettings().shareChat = $(this).is(':checked');
         saveKit();
-        toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
+        refreshNote();
     });
     $('#st_mk_share_limit').on('change', function () {
         let n = parseInt($(this).val(), 10);
@@ -140,55 +209,47 @@ function injectKitPanel() {
         saveKit();
         toastr.info(n === 0 ? '已保存：导出全部聊天。' : `已保存：最近 ${n} 条。`, '酒馆小工具');
     });
-    $('#st_mk_run_fmzh').on('click', async function () {
-        try {
-            ensureKitSettings().firstMesZh = true;
-            $('#st_mk_first_mes_zh').prop('checked', true);
-            saveKit();
-            const m = await import('./modules/first-mes-zh.js');
-            m.initFirstMesZh();
-            await m.runBatchTranslate({ includeFirst: true, includeAlts: true });
-        } catch (e) {
-            console.error(LOG, e);
-            toastr.error(String(e && e.message ? e.message : e), '汉化失败');
-        }
+    $('#st_mk_show_advanced').on('change', function () {
+        const on = $(this).is(':checked');
+        ensureKitSettings().showAdvanced = on;
+        saveKit();
+        $('#st_mk_advanced').toggle(on);
     });
-    $('#st_mk_restore_fmzh').on('click', async function () {
-        try {
-            const m = await import('./modules/first-mes-zh.js');
-            m.initFirstMesZh();
-            m.restoreLastTranslate();
-        } catch (e) {
-            console.error(LOG, e);
-            toastr.error(String(e && e.message ? e.message : e), '复原失败');
-        }
+
+    $('#st_mk_aar_confirm').on('change', function () {
+        ensureAarSettings().confirmBeforeRetry = $(this).is(':checked');
+        saveSettingsDebounced();
     });
-    $('#st_mk_force_fmzh').on('click', async function () {
-        try {
-            ensureKitSettings().firstMesZh = true;
-            $('#st_mk_first_mes_zh').prop('checked', true);
-            saveKit();
-            const m = await import('./modules/first-mes-zh.js');
-            const d = m.initFirstMesZh();
-            const lines = [
-                `模块 ${d.moduleVersion}`,
-                `textarea: ${d.textareaFound ? (d.textareaVisible ? '可见' : '找到但不可见') : '未找到'}`,
-                `编辑页按钮: ${d.buttonVisible ? '可见' : (d.buttonInDom ? '在DOM但不可见' : '无')}`,
-                `悬浮球: ${d.fabVisible ? '已显示' : '未显示（先打开角色编辑）'}`,
-                `generateRaw: ${d.hasGenerateRaw ? '有' : '无'}`,
-                `inject: ${d.inject && d.inject.where}`,
-            ];
-            console.log(LOG, 'diagnose', d);
-            if (d.buttonVisible || d.fabVisible) {
-                toastr.success(lines.join(' · '), '开场汉化诊断');
-            } else {
-                toastr.info(lines.join(' · ') + ' —— 可用「立即汉化当前角色开场」', '开场汉化诊断');
-            }
-        } catch (e) {
-            console.error(LOG, e);
-            toastr.error(String(e && e.message ? e.message : e), '注入失败');
-        }
+    $('#st_mk_aar_empty').on('change', function () {
+        ensureAarSettings().retryEmptyReply = $(this).is(':checked');
+        saveSettingsDebounced();
     });
+    $('#st_mk_aar_scroll').on('change', function () {
+        ensureAarSettings().scrollToNewMessageStart = $(this).is(':checked');
+        saveSettingsDebounced();
+    });
+    $('#st_mk_aar_max').on('change', function () {
+        let n = parseInt($(this).val(), 10);
+        if (!Number.isFinite(n) || n < 0) n = 3;
+        ensureAarSettings().maxRetries = n;
+        saveSettingsDebounced();
+    });
+
+    $('#st_mk_cpa_clear_pins').on('click', function () {
+        ensureCpaSettings().pinned = [];
+        saveSettingsDebounced();
+        toastr.success('已清空置顶', '酒馆小工具');
+        try { if (typeof printCharactersDebounced === 'function') printCharactersDebounced(); } catch (_) { /* ignore */ }
+    });
+    $('#st_mk_cpa_clear_arch').on('click', function () {
+        const c = ensureCpaSettings();
+        c.archived = [];
+        c.showArchivedOnly = false;
+        saveSettingsDebounced();
+        toastr.success('已清空归档', '酒馆小工具');
+        try { if (typeof printCharactersDebounced === 'function') printCharactersDebounced(); } catch (_) { /* ignore */ }
+    });
+
     $('#st_mk_run_share').on('click', async function () {
         try {
             ensureKitSettings().shareChat = true;
@@ -202,6 +263,7 @@ function injectKitPanel() {
             toastr.error(String(e && e.message ? e.message : e), '复制失败');
         }
     });
+
     async function withGreetingIo(fn) {
         ensureKitSettings().firstMesZh = true;
         $('#st_mk_first_mes_zh').prop('checked', true);
@@ -230,6 +292,7 @@ function injectKitPanel() {
         try { await withGreetingIo((m) => m.restoreOriginalBackup()); }
         catch (e) { console.error(LOG, e); toastr.error(String(e && e.message ? e.message : e), '还原失败'); }
     });
+
     return true;
 }
 
@@ -238,6 +301,7 @@ function waitKitPanel() {
     let tries = 0;
     const timer = setInterval(() => {
         tries += 1;
+        hideLegacyModulePanels();
         if (injectKitPanel() || tries > 60) clearInterval(timer);
     }, 500);
 }
@@ -245,16 +309,22 @@ function waitKitPanel() {
 jQuery(() => {
     try {
         const s = ensureKitSettings();
+        // Prefer quieter auto-retry when first migrating into kit UI
+        const aar = ensureAarSettings();
+        if (aar.confirmBeforeRetry === true && s.showAdvanced === false) {
+            // leave as-is; user can enable in advanced
+        }
         waitKitPanel();
+        setInterval(hideLegacyModulePanels, 2000);
 
         if (s.autoRetry) {
-            initAutoRetry();
+            initAutoRetry({ skipSettingsPanel: true });
         } else {
             console.log(LOG, 'API 自动重试已关闭');
         }
 
         if (s.pinArchive) {
-            initPinArchive();
+            initPinArchive({ skipSettingsPanel: true });
         } else {
             console.log(LOG, '角色置顶与归档已关闭');
         }
@@ -266,13 +336,8 @@ jQuery(() => {
                     console.error(LOG, '开场导入导出加载失败', err);
                     toastr.error('开场导入导出加载失败，请看控制台', '酒馆小工具');
                 });
-            import('./modules/first-mes-zh.js')
-                .then((m) => m.initFirstMesZh())
-                .catch((err) => {
-                    console.error(LOG, '开场 AI 汉化模块加载失败', err);
-                });
         } else {
-            console.log(LOG, '开场工具已关闭');
+            console.log(LOG, '开场导入导出已关闭');
         }
 
         if (s.shareChat) {
@@ -291,7 +356,6 @@ jQuery(() => {
         if (s.pinArchive) parts.push('置顶归档');
         if (s.firstMesZh) parts.push('开场导入导出');
         if (s.shareChat) parts.push('聊天复制');
-        // Quiet boot — no startup toastr spam on TauriTavern
         console.log(LOG, `loaded v${VERSION}`, parts.length ? parts.join('+') : 'all off', s);
     } catch (e) {
         console.error(LOG, 'init failed', e);

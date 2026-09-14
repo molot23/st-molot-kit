@@ -1946,10 +1946,10 @@ const MODULE_NAME = 'st-api-auto-retry';
         console.log(`${LOG_PREFIX} 已劫持 window.fetch (v${VERSION})`);
     }
 
-    function init() {
+    function init(options = {}) {
         getSettings();
         installFetchPatch();
-        waitAndInjectSettings();
+        if (!options.skipSettingsPanel) waitAndInjectSettings();
         if (!installScrollToStartHooks()) {
             let tries = 0;
             const timer = setInterval(() => {
@@ -1961,6 +1961,6 @@ const MODULE_NAME = 'st-api-auto-retry';
         console.log(`${LOG_PREFIX} v${VERSION} 初始化完成（仅对话 generate 白名单）`);
     }
 
-export function initAutoRetry() {
-    init();
+export function initAutoRetry(options = {}) {
+    init(options || {});
 }
