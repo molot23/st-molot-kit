@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场导入导出 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.4.7
+ * Version: 1.4.8
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.4.7';
+const VERSION = '1.4.8';
 const LOG = '[酒馆小工具]';
 
 const defaultKit = () => ({
@@ -291,11 +291,8 @@ jQuery(() => {
         if (s.pinArchive) parts.push('置顶归档');
         if (s.firstMesZh) parts.push('开场导入导出');
         if (s.shareChat) parts.push('聊天复制');
-        toastr.info(
-            parts.length ? `已加载：${parts.join(' + ')}（v${VERSION}）` : `合集已加载，但模块均已关闭（v${VERSION}）`,
-            '酒馆小工具',
-        );
-        console.log(LOG, `loaded v${VERSION}`, s);
+        // Quiet boot — no startup toastr spam on TauriTavern
+        console.log(LOG, `loaded v${VERSION}`, parts.length ? parts.join('+') : 'all off', s);
     } catch (e) {
         console.error(LOG, 'init failed', e);
         toastr.error('合集加载失败，请看控制台', '酒馆小工具');
