@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: API 自动重试 + 角色置顶与归档 + 开场导入导出 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.5.0
+ * Version: 1.5.1
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -11,7 +11,7 @@ import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const LOG = '[酒馆小工具]';
 const AAR = 'st-api-auto-retry';
 const CPA = 'st-char-pin-archive';
@@ -104,22 +104,24 @@ function injectKitPanel() {
 
                     <div class="st-mk-section">
                         <div class="st-mk-section-title">功能开关</div>
-                        <label class="checkbox_label st-mk-check">
-                            <input type="checkbox" id="st_mk_auto_retry" ${s.autoRetry ? 'checked' : ''}/>
-                            <span>API 自动重试</span>
-                        </label>
-                        <label class="checkbox_label st-mk-check">
-                            <input type="checkbox" id="st_mk_pin_archive" ${s.pinArchive ? 'checked' : ''}/>
-                            <span>角色置顶与归档</span>
-                        </label>
-                        <label class="checkbox_label st-mk-check">
-                            <input type="checkbox" id="st_mk_first_mes_zh" ${s.firstMesZh ? 'checked' : ''}/>
-                            <span>开场导入导出</span>
-                        </label>
-                        <label class="checkbox_label st-mk-check">
-                            <input type="checkbox" id="st_mk_share_chat" ${s.shareChat ? 'checked' : ''}/>
-                            <span>复制聊天到剪贴板</span>
-                        </label>
+                        <div class="st-mk-toggle-list">
+                            <label class="st-mk-toggle" for="st_mk_tog_retry">
+                                <input type="checkbox" id="st_mk_tog_retry" ${s.autoRetry ? 'checked' : ''}/>
+                                <span>API 自动重试</span>
+                            </label>
+                            <label class="st-mk-toggle" for="st_mk_tog_pin">
+                                <input type="checkbox" id="st_mk_tog_pin" ${s.pinArchive ? 'checked' : ''}/>
+                                <span>角色置顶与归档</span>
+                            </label>
+                            <label class="st-mk-toggle" for="st_mk_tog_greeting">
+                                <input type="checkbox" id="st_mk_tog_greeting" ${s.firstMesZh ? 'checked' : ''}/>
+                                <span>开场导入导出</span>
+                            </label>
+                            <label class="st-mk-toggle" for="st_mk_tog_share">
+                                <input type="checkbox" id="st_mk_tog_share" ${s.shareChat ? 'checked' : ''}/>
+                                <span>复制聊天到剪贴板</span>
+                            </label>
+                        </div>
                     </div>
 
                     <div class="st-mk-section">
@@ -182,22 +184,22 @@ function injectKitPanel() {
 
     const refreshNote = () => toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
 
-    $('#st_mk_auto_retry').on('change', function () {
+    $('#st_mk_tog_retry').on('change', function () {
         ensureKitSettings().autoRetry = $(this).is(':checked');
         saveKit();
         refreshNote();
     });
-    $('#st_mk_pin_archive').on('change', function () {
+    $('#st_mk_tog_pin').on('change', function () {
         ensureKitSettings().pinArchive = $(this).is(':checked');
         saveKit();
         refreshNote();
     });
-    $('#st_mk_first_mes_zh').on('change', function () {
+    $('#st_mk_tog_greeting').on('change', function () {
         ensureKitSettings().firstMesZh = $(this).is(':checked');
         saveKit();
         refreshNote();
     });
-    $('#st_mk_share_chat').on('change', function () {
+    $('#st_mk_tog_share').on('change', function () {
         ensureKitSettings().shareChat = $(this).is(':checked');
         saveKit();
         refreshNote();
@@ -253,7 +255,7 @@ function injectKitPanel() {
     $('#st_mk_run_share').on('click', async function () {
         try {
             ensureKitSettings().shareChat = true;
-            $('#st_mk_share_chat').prop('checked', true);
+            $('#st_mk_tog_share').prop('checked', true);
             saveKit();
             const m = await import('./modules/share-chat-txt.js');
             m.initShareChatTxt();
@@ -266,7 +268,7 @@ function injectKitPanel() {
 
     async function withGreetingIo(fn) {
         ensureKitSettings().firstMesZh = true;
-        $('#st_mk_first_mes_zh').prop('checked', true);
+        $('#st_mk_tog_greeting').prop('checked', true);
         saveKit();
         const m = await import('./modules/greeting-io.js');
         m.initGreetingIo();

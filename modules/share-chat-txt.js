@@ -5,7 +5,7 @@
 
 const LOG = '[聊天复制]';
 const VERSION = '2.0.0';
-const BTN_ID = 'st_mk_share_chat';
+const BTN_ID = 'st_mk_share_chat_btn';
 const OPT_ID = 'st_mk_share_chat_option';
 const STYLE_ID = 'st_mk_share_chat_style';
 const KIT = 'st-molot-kit';
