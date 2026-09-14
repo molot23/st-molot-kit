@@ -275,10 +275,7 @@
 }
 
 
-/* share chat */
-#st_mk_share_chat_btn {
-    cursor: pointer;
-}
+/* share chat: no input-bar button */
 #st_mk_share_limit {
     max-width: 6rem;
 }

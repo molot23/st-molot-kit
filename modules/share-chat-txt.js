@@ -4,7 +4,7 @@
  */
 
 const LOG = '[聊天复制]';
-const VERSION = '2.0.0';
+const VERSION = '2.0.1';
 const BTN_ID = 'st_mk_share_chat_btn';
 const OPT_ID = 'st_mk_share_chat_option';
 const STYLE_ID = 'st_mk_share_chat_style';
@@ -38,22 +38,6 @@ function ensureCss() {
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      #${BTN_ID} {
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        width: 2.1rem !important;
-        height: 2.1rem !important;
-        margin: 0 2px !important;
-        border-radius: 8px !important;
-        cursor: pointer !important;
-        opacity: 0.85 !important;
-        color: var(--SmartThemeBodyColor, #ddd) !important;
-        flex-shrink: 0 !important;
-      }
-      #${BTN_ID}:hover { opacity: 1 !important; color: var(--SmartThemeQuoteColor, #f59e0b) !important; }
-      #${BTN_ID}.st-mk-share-busy { opacity: 0.45 !important; pointer-events: none !important; }
-      #leftSendForm { display: flex !important; align-items: center !important; gap: 2px !important; }
       #${OPT_ID}, a.st-mk-share-option {
         display: flex !important;
         align-items: center !important;
@@ -145,8 +129,6 @@ export async function shareCurrentChat() {
         return { ok: false, reason: 'empty' };
     }
     const text = buildTxt(pack);
-    const btn = document.getElementById(BTN_ID);
-    if (btn) btn.classList.add('st-mk-share-busy');
     try {
         await copyToClipboard(text);
         toastr?.success?.(`已复制 ${pack.exported.length} 条到剪贴板。可粘贴到 Grok。`, '聊天复制');
@@ -155,8 +137,6 @@ export async function shareCurrentChat() {
         console.error(LOG, e);
         toastr?.error?.(String(e?.message || e), '复制失败');
         return { ok: false, reason: String(e?.message || e) };
-    } finally {
-        if (btn) btn.classList.remove('st-mk-share-busy');
     }
 }
 
@@ -212,29 +192,8 @@ function injectOptionsMenuItem() {
     return true;
 }
 
-function injectLeftButton() {
-    ensureCss();
-    if (document.getElementById(BTN_ID)) return true;
-    const left = document.querySelector('#leftSendForm');
-    if (!left) return false;
-
-    const btn = document.createElement('div');
-    btn.id = BTN_ID;
-    btn.className = 'fa-solid fa-copy interactable';
-    btn.title = '复制聊天到剪贴板';
-    btn.setAttribute('role', 'button');
-    btn.tabIndex = 0;
-    btn.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        shareCurrentChat();
-    });
-
-    const options = left.querySelector('#options_button');
-    if (options && options.nextSibling) left.insertBefore(btn, options.nextSibling);
-    else if (options) left.appendChild(btn);
-    else left.prepend(btn);
-    return true;
+function removeLeftButton() {
+    document.getElementById(BTN_ID)?.remove();
 }
 
 let started = false;
@@ -243,8 +202,8 @@ export function initShareChatTxt() {
     ensureCss();
     const tryInject = () => {
         try {
+            removeLeftButton();
             injectOptionsMenuItem();
-            injectLeftButton();
         } catch (e) {
             console.warn(LOG, e);
         }
@@ -256,5 +215,5 @@ export function initShareChatTxt() {
         obs.observe(document.body, { childList: true, subtree: true });
         setInterval(tryInject, 2000);
     }
-    console.log(LOG, `module loaded v${VERSION} (clipboard only)`);
+    console.log(LOG, `module loaded v${VERSION} (settings + options menu; no input-bar button)`);
 }
