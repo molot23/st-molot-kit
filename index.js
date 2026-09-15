@@ -2,7 +2,7 @@
  * st-molot-kit — 酒馆小工具合集
  * Bundles: 角色置顶与归档 + 开场导入导出 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.6.0
+ * Version: 1.6.1
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
@@ -10,7 +10,7 @@ import { extension_settings } from '../../../extensions.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.6.0';
+const VERSION = '1.6.1';
 const LOG = '[酒馆小工具]';
 const CPA = 'st-char-pin-archive';
 
@@ -18,7 +18,7 @@ const defaultKit = () => ({
     pinArchive: true,
     firstMesZh: true, // greeting import/export
     shareChat: true,
-    shareChatLimit: 100,
+    shareChatLimit: 0,
     showAdvanced: false,
 });
 
@@ -107,7 +107,7 @@ function injectKitPanel() {
                     <div class="st-mk-section">
                         <div class="st-mk-section-title">复制聊天</div>
                         <div class="st-mk-row">
-                            <label for="st_mk_share_limit">条数（0=全部）</label>
+                            <label for="st_mk_share_limit">条数（0=全部，含小白x隐藏楼）</label>
                             <input type="number" id="st_mk_share_limit" class="text_pole st-mk-num" min="0" max="9999" step="1" value="${Number(s.shareChatLimit) || 0}"/>
                         </div>
                         <button type="button" id="st_mk_run_share" class="menu_button st-mk-action-btn">复制当前聊天到剪贴板</button>

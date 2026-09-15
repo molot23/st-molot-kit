@@ -4,7 +4,7 @@
  */
 
 const LOG = '[聊天复制]';
-const VERSION = '2.0.1';
+const VERSION = '2.1.0';
 const BTN_ID = 'st_mk_share_chat_btn';
 const OPT_ID = 'st_mk_share_chat_option';
 const STYLE_ID = 'st_mk_share_chat_style';
@@ -30,7 +30,7 @@ function getLimit() {
     const n = Number(getKitSettings().shareChatLimit);
     if (n === 0) return 0;
     if (Number.isFinite(n) && n > 0) return Math.floor(n);
-    return 100;
+    return 0; // default: all floors (incl. LittleWhiteX-hidden)
 }
 
 function ensureCss() {
@@ -68,37 +68,63 @@ function speakerLabel(msg) {
     return name || 'Assistant';
 }
 
+function looksLikeRealChat(msg, text) {
+    // LittleWhiteX "隐藏已总结楼层" marks old dialogue as is_system without deleting mes.
+    if (!text) return false;
+    if (!msg.is_system) return true;
+    if (msg.is_user) return true;
+    const name = String(msg.name || '').trim();
+    if (name && name.toLowerCase() !== 'system') return true;
+    if (text.length >= 8) return true;
+    return false;
+}
+
 function collectMessages() {
     const ctx = getCtx();
     const chat = Array.isArray(ctx?.chat) ? ctx.chat : (Array.isArray(globalThis.chat) ? globalThis.chat : []);
     const usable = [];
+    let hiddenIncluded = 0;
     for (let i = 0; i < chat.length; i++) {
         const msg = chat[i];
         if (!msg || typeof msg !== 'object') continue;
-        if (msg.is_system) continue;
         const text = stripHtml(msg.mes);
-        if (!text) continue;
-        usable.push({ index: i, is_user: !!msg.is_user, name: speakerLabel(msg), text });
+        if (!looksLikeRealChat(msg, text)) continue;
+        if (msg.is_system) hiddenIncluded += 1;
+        usable.push({
+            index: i,
+            is_user: !!msg.is_user,
+            is_system: !!msg.is_system,
+            name: speakerLabel(msg),
+            text,
+        });
     }
     const limit = getLimit();
     const sliced = limit > 0 && usable.length > limit ? usable.slice(-limit) : usable;
-    return { allCount: usable.length, exported: sliced, limit, totalInChat: chat.length };
+    return {
+        allCount: usable.length,
+        exported: sliced,
+        limit,
+        totalInChat: chat.length,
+        hiddenIncluded,
+    };
 }
 
-function buildTxt({ exported, allCount, limit, totalInChat }) {
+function buildTxt({ exported, allCount, limit, totalInChat, hiddenIncluded }) {
     const stamp = new Date().toISOString();
     const lines = [];
     lines.push('SillyTavern chat export');
     lines.push(`exported_at: ${stamp}`);
     lines.push(`messages_in_file: ${exported.length}`);
     lines.push(`messages_usable: ${allCount} (of ${totalInChat} raw)`);
+    lines.push(`hidden_floors_included: ${Number(hiddenIncluded) || 0}`);
     lines.push(`limit: ${limit === 0 ? 'all' : `last ${limit}`}`);
-    lines.push('note: chat text only; no character card data');
+    lines.push('note: includes floors hidden by LittleWhiteX (is_system); chat text only');
     lines.push('');
     lines.push('---');
     lines.push('');
     exported.forEach((m, i) => {
-        lines.push(`[${i + 1}] ${m.name}:`);
+        const tag = m.is_system ? ' [hidden]' : '';
+        lines.push(`[${i + 1}] ${m.name}${tag}:`);
         lines.push(m.text);
         lines.push('');
     });
@@ -131,7 +157,12 @@ export async function shareCurrentChat() {
     const text = buildTxt(pack);
     try {
         await copyToClipboard(text);
-        toastr?.success?.(`已复制 ${pack.exported.length} 条到剪贴板。可粘贴到 Grok。`, '聊天复制');
+        toastr?.success?.(
+            pack.hiddenIncluded
+                ? `已复制 ${pack.exported.length} 条（含 ${pack.hiddenIncluded} 条被小白x隐藏的楼）。`
+                : `已复制 ${pack.exported.length} 条到剪贴板。`,
+            '聊天复制',
+        );
         return { ok: true, mode: 'clipboard', count: pack.exported.length };
     } catch (e) {
         console.error(LOG, e);
