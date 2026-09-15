@@ -1,23 +1,20 @@
 /**
  * st-molot-kit — 酒馆小工具合集
- * Bundles: API 自动重试 + 角色置顶与归档 + 开场导入导出 + 复制聊天到剪贴板
+ * Bundles: 角色置顶与归档 + 开场导入导出 + 复制聊天到剪贴板
  * Author: molot23
- * Version: 1.5.4
+ * Version: 1.6.0
  */
 
 import { saveSettingsDebounced } from '../../../../script.js';
 import { extension_settings } from '../../../extensions.js';
-import { initAutoRetry } from './modules/auto-retry.js';
 import { initPinArchive } from './modules/pin-archive.js';
 
 const KIT = 'st-molot-kit';
-const VERSION = '1.5.4';
+const VERSION = '1.6.0';
 const LOG = '[酒馆小工具]';
-const AAR = 'st-api-auto-retry';
 const CPA = 'st-char-pin-archive';
 
 const defaultKit = () => ({
-    autoRetry: true,
     pinArchive: true,
     firstMesZh: true, // greeting import/export
     shareChat: true,
@@ -40,6 +37,8 @@ function ensureKitSettings() {
             s[k] = v;
         }
     }
+    // Drop removed module keys from older kit versions
+    if ('autoRetry' in s) delete s.autoRetry;
     return s;
 }
 
@@ -48,21 +47,6 @@ function saveKit() {
     saveSettingsDebounced();
 }
 
-function ensureAarSettings() {
-    if (!extension_settings[AAR] || typeof extension_settings[AAR] !== 'object') {
-        extension_settings[AAR] = {
-            enabled: true,
-            confirmBeforeRetry: false,
-            retryEmptyReply: true,
-            scrollToNewMessageStart: true,
-            maxRetries: 3,
-            baseDelayMs: 2000,
-            exponentialBackoff: true,
-            retryStatusCodes: [408, 429, 500, 502, 503, 504, 524],
-        };
-    }
-    return extension_settings[AAR];
-}
 
 function ensureCpaSettings() {
     if (!extension_settings[CPA] || typeof extension_settings[CPA] !== 'object') {
@@ -75,7 +59,7 @@ function ensureCpaSettings() {
 }
 
 function hideLegacyModulePanels() {
-    $('#st_api_auto_retry_settings, #st_cpa_settings').hide();
+    $('#st_cpa_settings').hide();
 }
 
 function injectKitPanel() {
@@ -90,7 +74,6 @@ function injectKitPanel() {
     if (!$target) return false;
 
     const s = ensureKitSettings();
-    const aar = ensureAarSettings();
     const html = `
         <div id="st_molot_kit_settings" class="st-molot-kit-settings">
             <div class="inline-drawer">
@@ -99,16 +82,12 @@ function injectKitPanel() {
                     <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
                 </div>
                 <div class="inline-drawer-content">
-                    <p class="st-mk-lead">自动重试 · 置顶归档 · 开场导入导出 · 复制聊天 <span class="st-mk-ver">v${VERSION}</span></p>
+                    <p class="st-mk-lead">置顶归档 · 开场导入导出 · 复制聊天 <span class="st-mk-ver">v${VERSION}</span></p>
                     <p class="st-mk-note">Megumin 请单独安装。开关变更后需刷新页面生效。</p>
 
                     <div class="st-mk-section">
                         <div class="st-mk-section-title">功能开关</div>
                         <div class="st-mk-toggle-list">
-                            <label class="checkbox_label st-mk-toggle" for="st_mk_tog_retry">
-                                <input type="checkbox" id="st_mk_tog_retry" ${s.autoRetry ? 'checked' : ''}/>
-                                <span>API 自动重试</span>
-                            </label>
                             <label class="checkbox_label st-mk-toggle" for="st_mk_tog_pin">
                                 <input type="checkbox" id="st_mk_tog_pin" ${s.pinArchive ? 'checked' : ''}/>
                                 <span>角色置顶与归档</span>
@@ -124,34 +103,6 @@ function injectKitPanel() {
                         </div>
                     </div>
 
-                    <div class="st-mk-section">
-                        <div class="st-mk-section-title">自动重试</div>
-                        <div class="st-mk-row">
-                            <label for="st_mk_aar_max">最大重试次数</label>
-                            <input type="number" id="st_mk_aar_max" class="text_pole st-mk-num" min="0" max="20" step="1" value="${Number(aar.maxRetries) || 3}"/>
-                        </div>
-                        <div class="st-mk-row">
-                            <label for="st_mk_aar_delay">重试间隔（毫秒）</label>
-                            <input type="number" id="st_mk_aar_delay" class="text_pole st-mk-num" min="0" max="120000" step="100" value="${Number(aar.baseDelayMs) || 2000}"/>
-                        </div>
-                        <label class="checkbox_label st-mk-check" for="st_mk_aar_backoff">
-                            <input type="checkbox" id="st_mk_aar_backoff" ${aar.exponentialBackoff !== false ? 'checked' : ''}/>
-                            <span>指数退避（间隔翻倍）</span>
-                        </label>
-                        <label class="checkbox_label st-mk-check" for="st_mk_aar_empty">
-                            <input type="checkbox" id="st_mk_aar_empty" ${aar.retryEmptyReply !== false ? 'checked' : ''}/>
-                            <span>空回复也重试</span>
-                        </label>
-                        <label class="checkbox_label st-mk-check" for="st_mk_aar_confirm">
-                            <input type="checkbox" id="st_mk_aar_confirm" ${aar.confirmBeforeRetry ? 'checked' : ''}/>
-                            <span>重试前手动确认</span>
-                        </label>
-                        <label class="checkbox_label st-mk-check" for="st_mk_aar_scroll">
-                            <input type="checkbox" id="st_mk_aar_scroll" ${aar.scrollToNewMessageStart !== false ? 'checked' : ''}/>
-                            <span>成功后跳到新消息开头</span>
-                        </label>
-                        <p class="st-mk-hint">跳开头只滚聊天区；若底栏被顶上去，关掉此项并刷新即可复原。</p>
-                    </div>
 
                     <div class="st-mk-section">
                         <div class="st-mk-section-title">复制聊天</div>
@@ -188,7 +139,6 @@ function injectKitPanel() {
                             </div>
                         </div>
                     </div>
-                    </div>
                 </div>
             </div>
         </div>`;
@@ -197,11 +147,6 @@ function injectKitPanel() {
 
     const refreshNote = () => toastr.info('已保存。刷新页面后生效。', '酒馆小工具');
 
-    $('#st_mk_tog_retry').on('change', function () {
-        ensureKitSettings().autoRetry = $(this).is(':checked');
-        saveKit();
-        refreshNote();
-    });
     $('#st_mk_tog_pin').on('change', function () {
         ensureKitSettings().pinArchive = $(this).is(':checked');
         saveKit();
@@ -231,34 +176,6 @@ function injectKitPanel() {
         $('#st_mk_advanced').toggle(on);
     });
 
-    $('#st_mk_aar_confirm').on('change', function () {
-        ensureAarSettings().confirmBeforeRetry = $(this).is(':checked');
-        saveSettingsDebounced();
-    });
-    $('#st_mk_aar_empty').on('change', function () {
-        ensureAarSettings().retryEmptyReply = $(this).is(':checked');
-        saveSettingsDebounced();
-    });
-    $('#st_mk_aar_scroll').on('change', function () {
-        ensureAarSettings().scrollToNewMessageStart = $(this).is(':checked');
-        saveSettingsDebounced();
-    });
-    $('#st_mk_aar_max').on('change', function () {
-        let n = parseInt($(this).val(), 10);
-        if (!Number.isFinite(n) || n < 0) n = 3;
-        ensureAarSettings().maxRetries = n;
-        saveSettingsDebounced();
-    });
-    $('#st_mk_aar_delay').on('change', function () {
-        let n = parseInt($(this).val(), 10);
-        if (!Number.isFinite(n) || n < 0) n = 2000;
-        ensureAarSettings().baseDelayMs = n;
-        saveSettingsDebounced();
-    });
-    $('#st_mk_aar_backoff').on('change', function () {
-        ensureAarSettings().exponentialBackoff = $(this).is(':checked');
-        saveSettingsDebounced();
-    });
 
     $('#st_mk_cpa_clear_pins').on('click', function () {
         ensureCpaSettings().pinned = [];
@@ -334,19 +251,8 @@ function waitKitPanel() {
 jQuery(() => {
     try {
         const s = ensureKitSettings();
-        // Prefer quieter auto-retry when first migrating into kit UI
-        const aar = ensureAarSettings();
-        if (aar.confirmBeforeRetry === true && s.showAdvanced === false) {
-            // leave as-is; user can enable in advanced
-        }
         waitKitPanel();
         setInterval(hideLegacyModulePanels, 2000);
-
-        if (s.autoRetry) {
-            initAutoRetry({ skipSettingsPanel: true });
-        } else {
-            console.log(LOG, 'API 自动重试已关闭');
-        }
 
         if (s.pinArchive) {
             initPinArchive({ skipSettingsPanel: true });
@@ -377,7 +283,6 @@ jQuery(() => {
         }
 
         const parts = [];
-        if (s.autoRetry) parts.push('自动重试');
         if (s.pinArchive) parts.push('置顶归档');
         if (s.firstMesZh) parts.push('开场导入导出');
         if (s.shareChat) parts.push('聊天复制');
